@@ -1,0 +1,12 @@
+services:
+  feed-curator:
+    build: ./app
+    container_name: devops-feed-curator
+    ports:
+      - "8085:8000"
+    volumes:
+      - ./data:/data
+      - ./app/sources.yaml:/app/sources.yaml
+    env_file:
+      - .env
+    restart: unless-stopped

@@ -1,0 +1,35 @@
+# RSS/Atom sources to poll. Add/remove freely - no code changes needed.
+# "reddit" sources are plain subreddit .rss feeds (no auth required).
+reddit:
+  - name: r/homelab
+    url: https://www.reddit.com/r/homelab/.rss
+  - name: r/selfhosted
+    url: https://www.reddit.com/r/selfhosted/.rss
+  - name: r/docker
+    url: https://www.reddit.com/r/docker/.rss
+  - name: r/devops
+    url: https://www.reddit.com/r/devops/.rss
+  - name: r/kubernetes
+    url: https://www.reddit.com/r/kubernetes/.rss
+  - name: r/sysadmin
+    url: https://www.reddit.com/r/sysadmin/.rss
+
+hackernews:
+  - name: Hacker News (front page)
+    url: https://hnrss.org/frontpage
+  - name: Hacker News (newest)
+    url: https://hnrss.org/newest?points=30
+
+blogs:
+  - name: ServeTheHome
+    url: https://www.servethehome.com/feed/
+  - name: Docker Blog
+    url: https://www.docker.com/blog/feed/
+  - name: Kubernetes Blog
+    url: https://kubernetes.io/feed.xml
+  - name: Cloudflare Blog
+    url: https://blog.cloudflare.com/rss/
+  - name: Grafana Blog
+    url: https://grafana.com/blog/index.xml
+  - name: Phoronix
+    url: https://www.phoronix.com/rss.php

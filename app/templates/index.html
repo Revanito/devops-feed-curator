@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevOps / Homelab Feed</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>DevOps / Homelab Feed</h1>
+  <div class="stats">
+    <span>{{ items|length }} shown</span>
+    <span>{{ stats.pending or 0 }} pending review</span>
+    <span>{{ stats.dropped or 0 }} filtered out</span>
+    <form action="/refresh" method="post"><button type="submit">Refresh now</button></form>
+  </div>
+</header>
+<main>
+  {% if not items %}
+    <p class="empty">No curated items yet — first poll may still be running, or nothing has passed the filter.</p>
+  {% endif %}
+  {% for item in items %}
+  <article class="card">
+    <a class="title" href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>
+    <div class="meta">
+      <span class="source">{{ item.source }}</span>
+      {% if item.tag %}<span class="tag">{{ item.tag }}</span>{% endif %}
+      <span class="published">{{ item.published }}</span>
+    </div>
+    {% if item.summary %}<p class="summary">{{ item.summary|striptags }}</p>{% endif %}
+  </article>
+  {% endfor %}
+</main>
+</body>
+</html>
