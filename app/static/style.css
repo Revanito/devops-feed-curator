@@ -52,6 +52,12 @@ header h1 {
   cursor: pointer;
 }
 
+.stats button:disabled {
+  background: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 main.columns {
   max-width: 1440px;
   margin: 0 auto;

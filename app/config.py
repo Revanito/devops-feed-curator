@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     one_min_base_url: str = "https://api.1min.ai"
     model_classifier: str = "gpt-4o-mini"
 
-    poll_interval_minutes: int = 30
+    poll_interval_minutes: int = 60
+    refresh_cooldown_minutes: int = 10
     classify_batch_size: int = 15
     max_items_per_source: int = 25
 

@@ -13,6 +13,11 @@
     <span>{{ reddit_items|length + blog_items|length + homelab_items|length }} shown</span>
     <span>{{ stats.pending or 0 }} pending review</span>
     <span>{{ stats.dropped or 0 }} filtered out</span>
+    <form action="/refresh" method="post">
+      <button type="submit" {% if not refresh_available %}disabled{% endif %}>
+        {{ "Refresh now" if refresh_available else "Refresh (cooling down)" }}
+      </button>
+    </form>
   </div>
 </header>
 

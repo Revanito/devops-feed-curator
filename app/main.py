@@ -1,9 +1,9 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header
 from fastapi.requests import Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,8 @@ log = logging.getLogger("main")
 
 templates = Jinja2Templates(directory="templates")
 scheduler = AsyncIOScheduler()
+
+_last_manual_refresh: datetime | None = None
 
 
 async def poll_and_classify() -> None:
@@ -67,20 +69,29 @@ def _split_columns(items: list) -> tuple[list, list, list]:
     return reddit, blogs, homelab
 
 
+def _refresh_available() -> bool:
+    if _last_manual_refresh is None:
+        return True
+    cooldown = timedelta(minutes=settings.refresh_cooldown_minutes)
+    return datetime.now() - _last_manual_refresh >= cooldown
+
+
 @app.get("/")
 def index(request: Request):
     items = db.get_curated(limit=300)
     stats = db.counts()
     reddit_items, blog_items, homelab_items = _split_columns(items)
     return templates.TemplateResponse("index.html", {
-        "request": request, "stats": stats,
+        "request": request, "stats": stats, "refresh_available": _refresh_available(),
         "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
     })
 
 
 @app.post("/refresh")
 async def refresh(x_admin_token: str = Header(default="")):
-    if not settings.admin_token or x_admin_token != settings.admin_token:
-        raise HTTPException(status_code=404)
-    await poll_and_classify()
+    global _last_manual_refresh
+    is_admin = bool(settings.admin_token) and x_admin_token == settings.admin_token
+    if is_admin or _refresh_available():
+        _last_manual_refresh = datetime.now()
+        await poll_and_classify()
     return RedirectResponse("/", status_code=303)
