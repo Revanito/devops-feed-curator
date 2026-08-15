@@ -15,5 +15,8 @@ class Settings(BaseSettings):
     sources_file: str = "sources.yaml"
     db_path: str = "/data/feeds.db"
 
+    # Optional: set to enable POST /refresh (send as X-Admin-Token header). Leave blank to disable it entirely.
+    admin_token: str = ""
+
 
 settings = Settings()

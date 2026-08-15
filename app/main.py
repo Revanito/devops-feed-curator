@@ -3,7 +3,7 @@ from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.requests import Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -63,6 +63,8 @@ def index(request: Request):
 
 
 @app.post("/refresh")
-async def refresh():
+async def refresh(x_admin_token: str = Header(default="")):
+    if not settings.admin_token or x_admin_token != settings.admin_token:
+        raise HTTPException(status_code=404)
     await poll_and_classify()
     return RedirectResponse("/", status_code=303)

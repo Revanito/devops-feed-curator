@@ -12,8 +12,9 @@ gadget content — keeping only substantive self-hosting/DevOps/homelab items.
   SQLite DB (`data/feeds.db`), then sends unclassified items in batches to a cheap LLM (`gpt-4o-mini` via
   1min.ai, same API key/provider as [discord-1min-proxy](../discord-1min-proxy)) asking it to keep/drop
   each one and tag it with a topic.
-- The webpage at `/` shows only the kept items, newest first, with a "Refresh now" button to force an
-  immediate poll instead of waiting for the schedule.
+- The webpage at `/` shows only the kept items, newest first. There's no manual refresh button on the
+  page (it's meant to be shared publicly, and a public button would let anyone trigger paid LLM calls) —
+  the scheduled poll is the only trigger unless `ADMIN_TOKEN` is set, see below.
 
 ## Setup
 
@@ -31,3 +32,20 @@ needed elsewhere.
 
 Edit `app/sources.yaml`. Any standard RSS/Atom feed URL works. Reddit subreddits: append `/.rss` to the
 subreddit URL. No restart required — the file is volume-mounted and read fresh on each poll.
+
+## Forcing a refresh manually
+
+Set `ADMIN_TOKEN` in `.env` to any random string, then:
+
+```
+curl -X POST -H "X-Admin-Token: <your token>" https://feeds.vaultinc.fr/refresh
+```
+
+Leave `ADMIN_TOKEN` blank (the default) to disable `/refresh` entirely — it 404s.
+
+## Exposing it publicly
+
+Deployed at [feeds.vaultinc.fr](https://feeds.vaultinc.fr), reverse-proxied the same way as
+[site.vaultinc.fr](https://site.vaultinc.fr) — public HTTPS traffic hits an existing LXC reverse-proxy
+nginx that terminates TLS and `proxy_pass`es to this container's port 8085 on its own LXC. The read-only
+page itself needs no auth (it's just links out to public articles); only `/refresh` is gated, see above.
