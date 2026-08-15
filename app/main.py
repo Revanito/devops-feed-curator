@@ -55,11 +55,27 @@ app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+def _split_columns(items: list) -> tuple[list, list, list]:
+    reddit, blogs, homelab = [], [], []
+    for item in items:
+        if (item["tag"] or "").lower() == "homelab":
+            homelab.append(item)
+        elif item["source"].startswith("r/"):
+            reddit.append(item)
+        else:
+            blogs.append(item)
+    return reddit, blogs, homelab
+
+
 @app.get("/")
 def index(request: Request):
-    items = db.get_curated(limit=150)
+    items = db.get_curated(limit=300)
     stats = db.counts()
-    return templates.TemplateResponse("index.html", {"request": request, "items": items, "stats": stats})
+    reddit_items, blog_items, homelab_items = _split_columns(items)
+    return templates.TemplateResponse("index.html", {
+        "request": request, "stats": stats,
+        "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
+    })
 
 
 @app.post("/refresh")

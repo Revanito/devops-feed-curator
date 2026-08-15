@@ -52,13 +52,40 @@ header h1 {
   cursor: pointer;
 }
 
-main {
-  max-width: 720px;
+main.columns {
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 1rem 1.25rem 3rem;
+  padding: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.column {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  min-width: 0;
+}
+
+.column h2 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  position: sticky;
+  top: 3.6rem;
+  background: var(--bg);
+  padding: 0.25rem 0;
+}
+
+@media (max-width: 980px) {
+  main.columns {
+    grid-template-columns: 1fr;
+  }
+  .column h2 { position: static; }
 }
 
 .card {

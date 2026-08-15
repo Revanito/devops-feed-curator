@@ -10,16 +10,13 @@
 <header>
   <h1>DevOps / Homelab Feed</h1>
   <div class="stats">
-    <span>{{ items|length }} shown</span>
+    <span>{{ reddit_items|length + blog_items|length + homelab_items|length }} shown</span>
     <span>{{ stats.pending or 0 }} pending review</span>
     <span>{{ stats.dropped or 0 }} filtered out</span>
   </div>
 </header>
-<main>
-  {% if not items %}
-    <p class="empty">No curated items yet — first poll may still be running, or nothing has passed the filter.</p>
-  {% endif %}
-  {% for item in items %}
+
+{% macro card(item) %}
   <article class="card">
     <a class="title" href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>
     <div class="meta">
@@ -29,7 +26,26 @@
     </div>
     {% if item.summary %}<p class="summary">{{ item.summary|striptags }}</p>{% endif %}
   </article>
-  {% endfor %}
+{% endmacro %}
+
+<main class="columns">
+  <section class="column">
+    <h2>Reddit</h2>
+    {% if not reddit_items %}<p class="empty">Nothing here yet.</p>{% endif %}
+    {% for item in reddit_items %}{{ card(item) }}{% endfor %}
+  </section>
+
+  <section class="column">
+    <h2>Blogs &amp; DevOps News</h2>
+    {% if not blog_items %}<p class="empty">Nothing here yet.</p>{% endif %}
+    {% for item in blog_items %}{{ card(item) }}{% endfor %}
+  </section>
+
+  <section class="column">
+    <h2>Homelab</h2>
+    {% if not homelab_items %}<p class="empty">Nothing here yet.</p>{% endif %}
+    {% for item in homelab_items %}{{ card(item) }}{% endfor %}
+  </section>
 </main>
 </body>
 </html>
