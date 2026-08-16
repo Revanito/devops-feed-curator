@@ -40,7 +40,7 @@ subreddit URL. No restart required — the file is volume-mounted and read fresh
 Set `ADMIN_TOKEN` in `.env` to any random string, then:
 
 ```
-curl -X POST -H "X-Admin-Token: <your token>" https://feeds.vaultinc.fr/refresh
+curl -X POST -H "X-Admin-Token: <your token>" https://feeds.example.com/refresh
 ```
 
 This always runs immediately regardless of `REFRESH_COOLDOWN_MINUTES`. Leave `ADMIN_TOKEN` blank (the
@@ -48,8 +48,7 @@ default) if you don't need that — the public button still works, just subject 
 
 ## Exposing it publicly
 
-Deployed at [feeds.vaultinc.fr](https://feeds.vaultinc.fr), reverse-proxied the same way as
-[site.vaultinc.fr](https://site.vaultinc.fr) — public HTTPS traffic hits an existing LXC reverse-proxy
-nginx that terminates TLS and `proxy_pass`es to this container's port 8085 on its own LXC. The page needs
-no auth (it's just links out to public articles); the refresh button is cost-bounded by the cooldown
-above rather than gated behind auth. See [`deploy/`](deploy/) for the nginx vhost and step-by-step setup.
+Deployed at feeds.example.com, etc. — public HTTPS traffic hits a reverse-proxy nginx that terminates TLS
+and `proxy_pass`es to this container. The page needs no auth (it's just links out to public articles);
+the refresh button is cost-bounded by the cooldown above rather than gated behind auth. See
+[`deploy/`](deploy/) for the nginx vhost and step-by-step setup.
