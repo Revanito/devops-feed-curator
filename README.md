@@ -52,4 +52,4 @@ Deployed at [feeds.vaultinc.fr](https://feeds.vaultinc.fr), reverse-proxied the 
 [site.vaultinc.fr](https://site.vaultinc.fr) — public HTTPS traffic hits an existing LXC reverse-proxy
 nginx that terminates TLS and `proxy_pass`es to this container's port 8085 on its own LXC. The page needs
 no auth (it's just links out to public articles); the refresh button is cost-bounded by the cooldown
-above rather than gated behind auth.
+above rather than gated behind auth. See [`deploy/`](deploy/) for the nginx vhost and step-by-step setup.
