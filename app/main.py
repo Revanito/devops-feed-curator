@@ -1,7 +1,8 @@
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+from dateutil import parser as date_parser
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header
@@ -71,6 +72,19 @@ def _split_columns(items: list) -> tuple[list, list, list]:
     return reddit, blogs, homelab
 
 
+def _is_recent(item, days: int) -> bool:
+    published = item["published"]
+    if not published:
+        return False
+    try:
+        dt = date_parser.parse(published)
+    except (ValueError, TypeError):
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - dt <= timedelta(days=days)
+
+
 def _refresh_available() -> bool:
     if _last_manual_refresh is None:
         return True
@@ -83,7 +97,7 @@ def index(request: Request):
     items = db.get_curated(limit=300)
     stats = db.counts()
     reddit_items, blog_items, homelab_items = _split_columns(items)
-    must_read_items = [item for item in items if item["critical"]][:8]
+    must_read_items = [item for item in items if item["critical"] and _is_recent(item, days=7)][:8]
     all_tags = sorted({(item["tag"] or "").lower() for item in items if item["tag"]})
     return templates.TemplateResponse("index.html", {
         "request": request, "stats": stats, "refresh_available": _refresh_available(),

@@ -18,8 +18,9 @@ items and admin-relevant IT world news.
 - The webpage at `/` shows the kept items in three columns — Reddit, Blogs & DevOps News, and Homelab
   (homelab-tagged items win that column regardless of source) — newest first within each. Admin-relevant
   IT world news lands in Blogs & DevOps News, tagged accordingly (e.g. `microsoft`, `outage`, `security`).
-- Anything flagged `critical` also shows in a **Must Read** banner above the three columns, so a major
-  incident doesn't get lost in the normal flow.
+- Anything flagged `critical` also shows in a **Must Read** banner above the three columns (capped at 8,
+  newest first), so a major incident doesn't get lost in the normal flow. Items older than 7 days drop
+  out of Must Read automatically (they stay in their normal column, just not the banner).
 - There's a "Refresh now" button, safe to expose publicly: it's rate-limited to one manual poll per
   `REFRESH_COOLDOWN_MINUTES` (default 10) so a shared link can't be used to spam paid LLM calls. It greys
   out and reads "cooling down" while a recent refresh is still in effect.
