@@ -117,7 +117,7 @@ header h1 {
 
 .must-read-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
@@ -167,6 +167,9 @@ main.columns {
     grid-template-columns: 1fr;
   }
   .column h2 { position: static; }
+  .must-read-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .card {
