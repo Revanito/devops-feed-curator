@@ -21,8 +21,8 @@
   </div>
 </header>
 
-{% macro card(item, must_read=false) %}
-  <article class="card{{ ' must-read' if must_read else '' }}" data-tag="{{ (item.tag or '')|lower }}">
+{% macro card(item, variant='') %}
+  <article class="card{{ ' ' + variant if variant else '' }}" data-tag="{{ (item.tag or '')|lower }}">
     <a class="title" href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>
     <div class="meta">
       <span class="source">{{ item.source }}</span>
@@ -47,7 +47,16 @@
 <section class="must-read-section">
   <h2>⚠ Must Read</h2>
   <div class="must-read-grid">
-    {% for item in must_read_items %}{{ card(item, must_read=true) }}{% endfor %}
+    {% for item in must_read_items %}{{ card(item, variant='must-read') }}{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if cve_items %}
+<section class="cve-section">
+  <h2>🛡 Latest CVEs</h2>
+  <div class="cve-grid">
+    {% for item in cve_items %}{{ card(item, variant='cve') }}{% endfor %}
   </div>
 </section>
 {% endif %}

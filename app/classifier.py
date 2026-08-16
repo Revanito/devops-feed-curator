@@ -34,9 +34,16 @@ SaaS, CrowdStrike-style crashes), actively-exploited zero-days, major ransomware
 similarly big operational news. This should be rare - most kept items are critical: false. Routine
 releases, blog posts, and "how I built X" posts are never critical.
 
+Tagging: if an item specifically discloses or reports on one or more CVEs / named vulnerabilities in a
+major, widely-deployed product or platform (Microsoft/Windows/Entra ID, the Linux kernel, nginx, Apache,
+OpenSSL, Docker, Kubernetes, major cloud providers, etc), use the tag "cve" instead of a generic tag like
+"security" - this lets the vulnerability specifically be surfaced separately from general security news.
+A generic "N vulnerabilities patched this month" roundup still qualifies as "cve" if it names a major
+product family. Don't use "cve" for vague "security incident" items with no actual vulnerability/CVE.
+
 Given a numbered list of items (title + short summary), respond with ONLY a JSON array, one object per
 item, in the same order, each shaped exactly like:
-{"i": <item number>, "keep": true|false, "critical": true|false, "tag": "<one short lowercase topic tag, e.g. docker, kubernetes, homelab, networking, storage, security, ci-cd, linux, microsoft, outage, news>"}
+{"i": <item number>, "keep": true|false, "critical": true|false, "tag": "<one short lowercase topic tag, e.g. docker, kubernetes, homelab, networking, storage, security, cve, ci-cd, linux, microsoft, outage, news>"}
 
 No prose, no markdown fences, just the JSON array.
 """

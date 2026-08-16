@@ -21,6 +21,10 @@ items and admin-relevant IT world news.
 - Anything flagged `critical` also shows in a **Must Read** banner above the three columns (capped at 8,
   newest first), so a major incident doesn't get lost in the normal flow. Items older than 7 days drop
   out of Must Read automatically (they stay in their normal column, just not the banner).
+- A **Latest CVEs** section sits below Must Read, above the columns: the 3 most recent items tagged `cve`
+  (genuine vulnerability disclosures on major products - Microsoft, Linux, nginx, Apache, Docker,
+  Kubernetes, etc, as opposed to generic `security` news). No dedicated CVE feed needed - it's just a
+  display pull from whatever the classifier already tagged that way.
 - There's a "Refresh now" button, safe to expose publicly: it's rate-limited to one manual poll per
   `REFRESH_COOLDOWN_MINUTES` (default 10) so a shared link can't be used to spam paid LLM calls. It greys
   out and reads "cooling down" while a recent refresh is still in effect.

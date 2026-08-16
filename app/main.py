@@ -98,10 +98,12 @@ def index(request: Request):
     stats = db.counts()
     reddit_items, blog_items, homelab_items = _split_columns(items)
     must_read_items = [item for item in items if item["critical"] and _is_recent(item, days=7)][:8]
+    cve_items = [item for item in items if (item["tag"] or "").lower() == "cve"][:3]
     all_tags = sorted({(item["tag"] or "").lower() for item in items if item["tag"]})
     return templates.TemplateResponse("index.html", {
         "request": request, "stats": stats, "refresh_available": _refresh_available(),
-        "must_read_items": must_read_items, "all_tags": all_tags, "css_version": _css_version,
+        "must_read_items": must_read_items, "cve_items": cve_items,
+        "all_tags": all_tags, "css_version": _css_version,
         "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
     })
 
