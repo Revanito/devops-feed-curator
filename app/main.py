@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from datetime import datetime, timedelta
 
@@ -21,6 +22,7 @@ templates = Jinja2Templates(directory="templates")
 scheduler = AsyncIOScheduler()
 
 _last_manual_refresh: datetime | None = None
+_css_version = hashlib.sha256(open("static/style.css", "rb").read()).hexdigest()[:10]
 
 
 async def poll_and_classify() -> None:
@@ -85,7 +87,7 @@ def index(request: Request):
     all_tags = sorted({(item["tag"] or "").lower() for item in items if item["tag"]})
     return templates.TemplateResponse("index.html", {
         "request": request, "stats": stats, "refresh_available": _refresh_available(),
-        "must_read_items": must_read_items, "all_tags": all_tags,
+        "must_read_items": must_read_items, "all_tags": all_tags, "css_version": _css_version,
         "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
     })
 
