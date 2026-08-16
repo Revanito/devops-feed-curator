@@ -28,6 +28,11 @@ items and admin-relevant IT world news.
 - There's a "Refresh now" button, safe to expose publicly: it's rate-limited to one manual poll per
   `REFRESH_COOLDOWN_MINUTES` (default 10) so a shared link can't be used to spam paid LLM calls. It greys
   out and reads "cooling down" while a recent refresh is still in effect.
+- Clicking it returns instantly (redirects straight back to `/`) - the actual feed fetch + classification
+  runs in the background rather than blocking the request, so it doesn't sit there long enough to trip a
+  reverse-proxy timeout (this used to 502 after ~60s on a slow poll, then recover once the request finally
+  finished server-side). A lock prevents two polls (manual + the hourly schedule) from ever running at once.
+  The page just won't show fresh results until the background poll actually finishes - reload after a bit.
 
 ## Setup
 

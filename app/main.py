@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
@@ -5,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from dateutil import parser as date_parser
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Header
+from fastapi import BackgroundTasks, FastAPI, Header
 from fastapi.requests import Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,24 +26,29 @@ scheduler = AsyncIOScheduler()
 _last_manual_refresh: datetime | None = None
 _css_version = hashlib.sha256(open("static/style.css", "rb").read()).hexdigest()[:10]
 _favicon_version = hashlib.sha256(open("static/favicon.png", "rb").read()).hexdigest()[:10]
+_poll_lock = asyncio.Lock()
 
 
 async def poll_and_classify() -> None:
-    log.info("polling feeds...")
-    items = feeds.fetch_all()
-    inserted = db.insert_new_items(items)
-    log.info("fetched %d items, %d new", len(items), inserted)
+    if _poll_lock.locked():
+        log.info("poll already in progress, skipping")
+        return
+    async with _poll_lock:
+        log.info("polling feeds...")
+        items = await asyncio.to_thread(feeds.fetch_all)
+        inserted = db.insert_new_items(items)
+        log.info("fetched %d items, %d new", len(items), inserted)
 
-    while True:
-        batch = db.get_unclassified(settings.classify_batch_size)
-        if not batch:
-            break
-        results = await classify_batch(batch)
-        if not results:
-            log.warning("classification failed for a batch of %d, will retry next poll", len(batch))
-            break
-        db.apply_classifications(results)
-        log.info("classified %d items", len(results))
+        while True:
+            batch = db.get_unclassified(settings.classify_batch_size)
+            if not batch:
+                break
+            results = await classify_batch(batch)
+            if not results:
+                log.warning("classification failed for a batch of %d, will retry next poll", len(batch))
+                break
+            db.apply_classifications(results)
+            log.info("classified %d items", len(results))
 
 
 @asynccontextmanager
@@ -110,10 +116,10 @@ def index(request: Request):
 
 
 @app.post("/refresh")
-async def refresh(x_admin_token: str = Header(default="")):
+async def refresh(background_tasks: BackgroundTasks, x_admin_token: str = Header(default="")):
     global _last_manual_refresh
     is_admin = bool(settings.admin_token) and x_admin_token == settings.admin_token
     if is_admin or _refresh_available():
         _last_manual_refresh = datetime.now()
-        await poll_and_classify()
+        background_tasks.add_task(poll_and_classify)
     return RedirectResponse("/", status_code=303)
