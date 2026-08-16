@@ -33,3 +33,15 @@ blogs:
     url: https://grafana.com/blog/index.xml
   - name: Phoronix
     url: https://www.phoronix.com/rss.php
+
+it_news:
+  - name: BleepingComputer
+    url: https://www.bleepingcomputer.com/feed/
+  - name: The Register
+    url: https://www.theregister.com/headlines.atom
+  - name: Krebs on Security
+    url: https://krebsonsecurity.com/feed/
+  - name: SANS Internet Storm Center
+    url: https://isc.sans.edu/rssfeed_full.xml
+  - name: Microsoft Security Blog
+    url: https://www.microsoft.com/en-us/security/blog/feed/

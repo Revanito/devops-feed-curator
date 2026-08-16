@@ -81,8 +81,11 @@ def index(request: Request):
     items = db.get_curated(limit=300)
     stats = db.counts()
     reddit_items, blog_items, homelab_items = _split_columns(items)
+    must_read_items = [item for item in items if item["critical"]][:8]
+    all_tags = sorted({(item["tag"] or "").lower() for item in items if item["tag"]})
     return templates.TemplateResponse("index.html", {
         "request": request, "stats": stats, "refresh_available": _refresh_available(),
+        "must_read_items": must_read_items, "all_tags": all_tags,
         "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
     })
 

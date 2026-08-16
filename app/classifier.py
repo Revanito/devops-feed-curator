@@ -11,19 +11,32 @@ _TIMEOUT = httpx.Timeout(60.0)
 
 _SYSTEM_PROMPT = """You are a content filter for a personal IT/DevOps/homelab news feed.
 
-KEEP items that are substantively about: self-hosting, homelab builds, Docker/Kubernetes/containers,
-DevOps tooling and practices, CI/CD, Linux/sysadmin, networking, storage/NAS, observability,
-infrastructure-as-code, open-source server software, cloud/on-prem infra, security/hardening for the above.
+KEEP items that are substantively about:
+- self-hosting, homelab builds, Docker/Kubernetes/containers, DevOps tooling and practices, CI/CD,
+  Linux/sysadmin, networking, storage/NAS, observability, infrastructure-as-code, open-source server
+  software, cloud/on-prem infra, security/hardening for the above.
+- IT-admin-relevant world news: major vendor announcements and outages affecting sysadmins (Microsoft,
+  Windows Server, Active Directory, Entra ID/Azure, VMware/Broadcom, Google Workspace, AWS/Azure/GCP
+  outages), security incidents and breaches with operational impact (CrowdStrike-style outages, major
+  CVEs, ransomware campaigns, supply-chain compromises), and significant open-source/infra project news
+  (major CVEs or releases in Linux, nginx, OpenSSL, systemd, Docker, Kubernetes, etc).
 
 DROP items that are: "look at this deal / buy this laptop/GPU/router for $X" posts, product marketing
 or affiliate content, hardware reviews unrelated to running services (phones, consumer gadgets), memes,
-"what should I buy" / shopping-advice threads, off-topic career/salary chat, general tech news with no
-IT/DevOps/homelab substance, politics, and low-effort "look what I got in the mail" posts even if the
-item pictured is a server (no operational content).
+"what should I buy" / shopping-advice threads, off-topic career/salary chat, generic consumer tech news
+with no admin/operational substance (phone launches, gaming hardware, app store news), politics unrelated
+to IT operations, and low-effort "look what I got in the mail" posts even if the item pictured is a
+server (no operational content).
+
+Also flag "critical": true for items describing a major ongoing or recent incident with broad real-world
+impact that a sysadmin would want to know about immediately - widespread outages (cloud providers, major
+SaaS, CrowdStrike-style crashes), actively-exploited zero-days, major ransomware/breach events, or
+similarly big operational news. This should be rare - most kept items are critical: false. Routine
+releases, blog posts, and "how I built X" posts are never critical.
 
 Given a numbered list of items (title + short summary), respond with ONLY a JSON array, one object per
 item, in the same order, each shaped exactly like:
-{"i": <item number>, "keep": true|false, "tag": "<one short lowercase topic tag, e.g. docker, kubernetes, homelab, networking, storage, security, ci-cd, linux, news>"}
+{"i": <item number>, "keep": true|false, "critical": true|false, "tag": "<one short lowercase topic tag, e.g. docker, kubernetes, homelab, networking, storage, security, ci-cd, linux, microsoft, outage, news>"}
 
 No prose, no markdown fences, just the JSON array.
 """
@@ -37,7 +50,7 @@ def _build_user_prompt(batch: list) -> str:
     return "\n".join(lines)
 
 
-async def classify_batch(batch: list) -> dict[str, tuple[bool, str]]:
+async def classify_batch(batch: list) -> dict[str, tuple[bool, str, bool]]:
     if not batch:
         return {}
 
@@ -82,6 +95,7 @@ async def classify_batch(batch: list) -> dict[str, tuple[bool, str]]:
             continue
         item_id = batch[idx - 1]["id"]
         keep = bool(entry.get("keep", False))
+        critical = bool(entry.get("critical", False))
         tag = str(entry.get("tag", ""))[:30]
-        results[item_id] = (keep, tag)
+        results[item_id] = (keep, tag, critical)
     return results

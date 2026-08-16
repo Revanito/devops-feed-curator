@@ -21,8 +21,8 @@
   </div>
 </header>
 
-{% macro card(item) %}
-  <article class="card">
+{% macro card(item, must_read=false) %}
+  <article class="card{{ ' must-read' if must_read else '' }}" data-tag="{{ (item.tag or '')|lower }}">
     <a class="title" href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>
     <div class="meta">
       <span class="source">{{ item.source }}</span>
@@ -32,6 +32,25 @@
     {% if item.summary %}<p class="summary">{{ item.summary|striptags }}</p>{% endif %}
   </article>
 {% endmacro %}
+
+{% if all_tags %}
+<div class="filter-bar">
+  <span class="filter-label">Filter:</span>
+  <button type="button" class="filter-tag active" data-filter-tag="">All</button>
+  {% for tag in all_tags %}
+  <button type="button" class="filter-tag" data-filter-tag="{{ tag }}">{{ tag }}</button>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if must_read_items %}
+<section class="must-read-section">
+  <h2>⚠ Must Read</h2>
+  <div class="must-read-grid">
+    {% for item in must_read_items %}{{ card(item, must_read=true) }}{% endfor %}
+  </div>
+</section>
+{% endif %}
 
 <main class="columns">
   <section class="column">
@@ -52,5 +71,38 @@
     {% for item in homelab_items %}{{ card(item) }}{% endfor %}
   </section>
 </main>
+
+<script>
+  (function () {
+    var selected = new Set();
+    var buttons = document.querySelectorAll('.filter-tag');
+    var cards = document.querySelectorAll('.card');
+
+    function apply() {
+      buttons.forEach(function (btn) {
+        var tag = btn.dataset.filterTag;
+        btn.classList.toggle('active', tag === '' ? selected.size === 0 : selected.has(tag));
+      });
+      cards.forEach(function (card) {
+        var visible = selected.size === 0 || selected.has(card.dataset.tag);
+        card.style.display = visible ? '' : 'none';
+      });
+    }
+
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var tag = btn.dataset.filterTag;
+        if (tag === '') {
+          selected.clear();
+        } else if (selected.has(tag)) {
+          selected.delete(tag);
+        } else {
+          selected.add(tag);
+        }
+        apply();
+      });
+    });
+  })();
+</script>
 </body>
 </html>

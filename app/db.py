@@ -15,10 +15,17 @@ CREATE TABLE IF NOT EXISTS items (
     seen_at TEXT NOT NULL,
     classified INTEGER NOT NULL DEFAULT 0,
     keep INTEGER,
-    tag TEXT
+    tag TEXT,
+    critical INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_items_keep_published ON items (keep, published);
 """
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(items)")}
+    if "critical" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN critical INTEGER NOT NULL DEFAULT 0")
 
 
 @contextmanager
@@ -35,6 +42,7 @@ def get_conn():
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(_SCHEMA)
+        _migrate(conn)
 
 
 def insert_new_items(items: list[dict]) -> int:
@@ -60,12 +68,12 @@ def get_unclassified(limit: int) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def apply_classifications(results: dict[str, tuple[bool, str]]) -> None:
+def apply_classifications(results: dict[str, tuple[bool, str, bool]]) -> None:
     with get_conn() as conn:
-        for item_id, (keep, tag) in results.items():
+        for item_id, (keep, tag, critical) in results.items():
             conn.execute(
-                "UPDATE items SET classified = 1, keep = ?, tag = ? WHERE id = ?",
-                (1 if keep else 0, tag, item_id),
+                "UPDATE items SET classified = 1, keep = ?, tag = ?, critical = ? WHERE id = ?",
+                (1 if keep else 0, tag, 1 if critical else 0, item_id),
             )
 
 
