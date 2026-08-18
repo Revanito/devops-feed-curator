@@ -79,9 +79,20 @@ async def classify_batch(batch: list) -> dict[str, tuple[bool, str, bool]]:
             return {}
 
     try:
-        raw = resp.json()["aiRecord"]["aiRecordDetail"]["resultObject"][0]
-    except (KeyError, IndexError, TypeError):
-        log.error("1min.ai response missing reply text: %s", resp.text[:300])
+        data = resp.json()
+    except ValueError as exc:
+        log.error("1min.ai response was not valid JSON (%s): %s", exc, resp.text[:2000])
+        return {}
+
+    try:
+        raw = data["aiRecord"]["aiRecordDetail"]["resultObject"][0]
+    except (KeyError, IndexError, TypeError) as exc:
+        log.error(
+            "1min.ai response missing reply text (%s: %s); top-level keys=%s; full body: %s",
+            type(exc).__name__, exc,
+            list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+            json.dumps(data)[:4000],
+        )
         return {}
 
     raw = raw.strip()
