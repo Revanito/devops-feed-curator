@@ -23,8 +23,9 @@ items and admin-relevant IT world news.
 - Raw feeds (especially Hacker News, which mirrors everything submitted, not just tech) occasionally
   include an item whose content trips 1min.ai's own moderation and gets the *entire batch* rejected with
   no per-item detail. If a batch fails, the app automatically bisects it and retries the halves, isolating
-  which single item is the problem; that item gets quarantined (marked classified, dropped) so it doesn't
-  block its batch-mates or burn a retry every poll forever.
+  which single item is the problem. A lone item is retried once more before being quarantined (marked
+  classified, dropped, tagged `unclassifiable`) — this avoids permanently dropping a perfectly fine item
+  that just happened to hit a transient API blip while alone in a bisected batch of one.
 - The webpage at `/` shows the kept items in three columns — Reddit, Blogs & DevOps News, and Homelab
   (homelab-tagged items win that column regardless of source) — newest first within each. Admin-relevant
   IT world news lands in Blogs & DevOps News, tagged accordingly (e.g. `microsoft`, `outage`, `security`).

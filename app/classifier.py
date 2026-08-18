@@ -133,6 +133,9 @@ async def classify_batch_isolating_failures(batch: list) -> dict[str, tuple[bool
 
     if len(batch) == 1:
         item = batch[0]
+        retry = await classify_batch(batch)
+        if retry:
+            return retry
         log.warning("quarantining unclassifiable item %s (%s)", item["id"], item["title"][:80])
         return {item["id"]: (False, "unclassifiable", False)}
 
