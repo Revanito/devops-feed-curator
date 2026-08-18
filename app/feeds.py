@@ -11,6 +11,7 @@ from config import settings
 log = logging.getLogger("feeds")
 
 _TAG_RE = re.compile(r"<[^>]+>")
+_DANGLING_TAG_RE = re.compile(r"<[^>]*$")
 
 
 def _load_sources() -> list[dict]:
@@ -29,8 +30,12 @@ def _item_id(link: str) -> str:
 def _clean_summary(raw: str) -> str:
     """Strip HTML tags and decode entities before truncating, not after -
     truncating raw HTML first can cut mid-tag and leave malformed markup
-    that neither displays nor sends to the classifier cleanly."""
+    that neither displays nor sends to the classifier cleanly. Also drops a
+    trailing unterminated tag (no closing '>' at all) - the regex above
+    can't match those, and they show up in data already truncated by an
+    older version of this function or upstream."""
     text = _TAG_RE.sub(" ", raw)
+    text = _DANGLING_TAG_RE.sub("", text)
     text = html.unescape(text)
     return " ".join(text.split())[:500]
 

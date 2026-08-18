@@ -27,6 +27,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "critical" not in columns:
         conn.execute("ALTER TABLE items ADD COLUMN critical INTEGER NOT NULL DEFAULT 0")
 
+    # One-time backfill: items ingested before feeds.py stripped HTML from summaries can have
+    # raw/mid-tag-truncated markup baked into this column - which was making 1min.ai reject the
+    # whole batch outright (status: FAILURE) instead of just that one item. Only unclassified rows
+    # matter here; already-classified ones already succeeded through the API with whatever they had.
+    from feeds import _clean_summary
+    dirty = conn.execute(
+        "SELECT id, summary FROM items WHERE classified = 0 AND summary LIKE '%<%'"
+    ).fetchall()
+    for row in dirty:
+        conn.execute("UPDATE items SET summary = ? WHERE id = ?", (_clean_summary(row["summary"]), row["id"]))
+
 
 @contextmanager
 def get_conn():
