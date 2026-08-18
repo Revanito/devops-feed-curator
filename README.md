@@ -10,6 +10,11 @@ items and admin-relevant IT world news.
 - `app/sources.yaml` lists the feeds to poll (reddit subs, HN, blogs, IT-news sites like BleepingComputer,
   Krebs on Security, SANS ISC, and the Microsoft Security Blog). It's volume-mounted into the container,
   so edits take effect on the next poll cycle without a rebuild.
+- Each item's summary has HTML tags stripped and entities decoded *before* truncating to length, not
+  after — truncating raw HTML first can cut mid-tag and leave malformed markup that neither displays
+  cleanly nor sends to the classifier cleanly (this was the actual cause of a full outage once: 1min.ai
+  was returning an immediate `status: FAILURE` on every batch that included one of these malformed
+  summaries, so nothing got classified for days).
 - Every `POLL_INTERVAL_MINUTES` (default 60), the app fetches all feeds, stores new items in a local
   SQLite DB (`data/feeds.db`), then sends unclassified items in batches to a cheap LLM (`gpt-4o-mini` via
   1min.ai, same API key/provider as [discord-1min-proxy](../discord-1min-proxy)) asking it to keep/drop
