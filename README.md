@@ -20,6 +20,11 @@ items and admin-relevant IT world news.
   1min.ai, same API key/provider as [discord-1min-proxy](../discord-1min-proxy)) asking it to keep/drop
   each one, tag it with a topic, and flag it `critical` if it's a big, broadly-impactful incident (major
   outages, actively-exploited zero-days, CrowdStrike-style events) rather than routine news.
+- Raw feeds (especially Hacker News, which mirrors everything submitted, not just tech) occasionally
+  include an item whose content trips 1min.ai's own moderation and gets the *entire batch* rejected with
+  no per-item detail. If a batch fails, the app automatically bisects it and retries the halves, isolating
+  which single item is the problem; that item gets quarantined (marked classified, dropped) so it doesn't
+  block its batch-mates or burn a retry every poll forever.
 - The webpage at `/` shows the kept items in three columns — Reddit, Blogs & DevOps News, and Homelab
   (homelab-tagged items win that column regardless of source) — newest first within each. Admin-relevant
   IT world news lands in Blogs & DevOps News, tagged accordingly (e.g. `microsoft`, `outage`, `security`).

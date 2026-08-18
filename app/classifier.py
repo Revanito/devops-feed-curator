@@ -117,3 +117,26 @@ async def classify_batch(batch: list) -> dict[str, tuple[bool, str, bool]]:
         tag = str(entry.get("tag", ""))[:30]
         results[item_id] = (keep, tag, critical)
     return results
+
+
+async def classify_batch_isolating_failures(batch: list) -> dict[str, tuple[bool, str, bool]]:
+    """Classify a batch, bisecting on failure so one bad item (e.g. one that trips 1min.ai's
+    own content moderation and gets the whole batch rejected with no per-item detail) can't
+    block every other item in it. A single item that still fails alone gets quarantined -
+    dropped and marked classified - so it stops burning a retry every poll forever."""
+    if not batch:
+        return {}
+
+    results = await classify_batch(batch)
+    if results:
+        return results
+
+    if len(batch) == 1:
+        item = batch[0]
+        log.warning("quarantining unclassifiable item %s (%s)", item["id"], item["title"][:80])
+        return {item["id"]: (False, "unclassifiable", False)}
+
+    mid = len(batch) // 2
+    left = await classify_batch_isolating_failures(batch[:mid])
+    right = await classify_batch_isolating_failures(batch[mid:])
+    return {**left, **right}

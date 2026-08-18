@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 import db
 import feeds
-from classifier import classify_batch
+from classifier import classify_batch_isolating_failures
 from config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -43,12 +43,14 @@ async def poll_and_classify() -> None:
             batch = db.get_unclassified(settings.classify_batch_size)
             if not batch:
                 break
-            results = await classify_batch(batch)
+            results = await classify_batch_isolating_failures(batch)
             if not results:
                 log.warning("classification failed for a batch of %d, will retry next poll", len(batch))
                 break
             db.apply_classifications(results)
-            log.info("classified %d items", len(results))
+            quarantined = len(batch) - len(results)
+            log.info("classified %d items%s", len(results),
+                      f" ({quarantined} quarantined as unclassifiable)" if quarantined else "")
 
 
 @asynccontextmanager
