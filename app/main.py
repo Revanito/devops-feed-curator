@@ -140,11 +140,11 @@ def _beyond_label() -> str:
 
 
 def _ram_label() -> str:
-    return f"RAM Deals under {settings.deal_max_price_eur}€"
+    return f"RAM Deals under {settings.ram_max_price_eur}€"
 
 
 def _ram_beyond_label() -> str:
-    return f"RAM Deals beyond {settings.deal_max_price_eur}€"
+    return f"RAM Deals beyond {settings.ram_max_price_eur}€"
 
 
 def _nav_context() -> dict:
@@ -217,14 +217,14 @@ def deals_beyond(request: Request):
 
 @app.get("/ram")
 def ram_deals(request: Request):
-    items = db.get_curated_deals(limit=300, max_total=settings.deal_max_price_eur, kind="ram")
+    items = db.get_curated_deals(limit=300, max_total=settings.ram_max_price_eur, kind="ram")
     return _render_deals(request, _ram_label(), "ram", items)
 
 
 @app.get("/ram/beyond")
 def ram_deals_beyond(request: Request):
     items = db.get_curated_deals(
-        limit=300, min_total=settings.deal_max_price_eur, max_total=settings.deal_extended_max_price_eur,
+        limit=300, min_total=settings.ram_max_price_eur, max_total=settings.ram_extended_max_price_eur,
         kind="ram",
     )
     return _render_deals(request, _ram_beyond_label(), "ram-beyond", items)

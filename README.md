@@ -13,13 +13,15 @@ small-form-factor PCs — Lenovo ThinkCentre Tiny, HP EliteDesk/ProDesk Mini, In
 matches: real mini-PC form factor, modern-enough CPU generation, not just a keyword hit on the title.
 
 **RAM Deals.** Same eBay-backed approach applied to memory upgrades: DDR4/DDR5 sticks and kits (single
-modules or 2x/4x configurations), with anything DDR3-or-older dropped outright regardless of price.
+modules or 2x/4x configurations), with anything DDR3-or-older dropped outright regardless of price. RAM
+has its own, much lower price ceiling than mini-PC deals — a stick or kit rarely costs anywhere near what
+a whole mini PC does.
 
 ## How it works
 
 Five pages, sharing one poll/classify cycle and one nav bar (top-right, on every page): **News** (`/`),
 **Homelab Deals** (`/deals`), **Homelab Deals beyond €500** (`/deals/beyond`), **RAM Deals** (`/ram`), and
-**RAM Deals beyond €500** (`/ram/beyond`).
+**RAM Deals beyond €200** (`/ram/beyond`).
 
 ### News feed (`/`)
 
@@ -167,11 +169,17 @@ some tens to ~150 kept listings.
 
 ### RAM Deals (`/ram`, `/ram/beyond`)
 
-The same eBay pipeline as Homelab Deals — sourcing, EUR conversion, price ceilings/pages, not-working
-filter, and availability re-checking are all shared code (`ebay.fetch_ram_all()`, searches defined in
+The same eBay pipeline as Homelab Deals — sourcing, EUR conversion, not-working filter, and availability
+re-checking are all shared code (`ebay.fetch_ram_all()`, searches defined in
 [`app/ram_deals.yaml`](app/ram_deals.yaml)) — applied to memory instead of mini PCs, with its own
 deterministic gate and prompt
 ([`app/prompts/ram_system_prompt.txt`](app/prompts/ram_system_prompt.txt)).
+
+**Its own price ceilings.** RAM does *not* reuse `DEAL_MAX_PRICE_EUR`/`DEAL_EXTENDED_MAX_PRICE_EUR` — it
+has its own, much lower pair: `RAM_MAX_PRICE_EUR` (default €200) for `/ram`, and
+`RAM_EXTENDED_MAX_PRICE_EUR` (default €500) for `/ram/beyond`. A stick or kit rarely costs anywhere near
+what a whole mini PC does, so the €500/€1500 mini-PC ceilings would make almost every RAM listing land on
+the "under" page regardless of how expensive it actually was for RAM.
 
 **Generation gate.** `ebay.py`'s `_ram_generation_reason()` rejects anything explicitly stated as DDR3,
 DDR2, or older, regardless of price or capacity — a hard compatibility fact, not a judgment call, so

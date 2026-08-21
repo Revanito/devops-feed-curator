@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     deal_extended_max_price_eur: int = 1500
     deals_file: str = "deals.yaml"
     ram_deals_file: str = "ram_deals.yaml"
+    # RAM has its own, much lower price ceilings than mini-PC deals - a stick/kit rarely costs
+    # anywhere near what a whole mini PC does.
+    ram_max_price_eur: int = 200
+    ram_extended_max_price_eur: int = 500
 
     # Baseline GBP->EUR rate, not live-fetched - update this occasionally by hand if it drifts far
     # from reality. Good enough for "is this roughly under budget", not for actual accounting.

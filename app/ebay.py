@@ -407,7 +407,7 @@ def _resolve_group(client: httpx.Client, token: str, group_href: str, cache: dic
     return result
 
 
-def _search(client: httpx.Client, token: str, marketplace: str, keywords: str) -> list[dict]:
+def _search(client: httpx.Client, token: str, marketplace: str, keywords: str, max_price_eur: int) -> list[dict]:
     currency = _MARKETPLACE_CURRENCY.get(marketplace, "EUR")
     resp = client.get(
         _SEARCH_URL,
@@ -417,7 +417,7 @@ def _search(client: httpx.Client, token: str, marketplace: str, keywords: str) -
         },
         params={
             "q": keywords,
-            "filter": f"price:[..{settings.deal_extended_max_price_eur}],priceCurrency:{currency},buyingOptions:{{FIXED_PRICE}}",
+            "filter": f"price:[..{max_price_eur}],priceCurrency:{currency},buyingOptions:{{FIXED_PRICE}}",
             "sort": "newlyListed",
             "limit": "25",
         },
@@ -454,7 +454,7 @@ def fetch_all() -> list[dict]:
 
         for search in _load_searches(settings.deals_file):
             for marketplace in marketplaces:
-                for raw in _search(client, token, marketplace, search["keywords"]):
+                for raw in _search(client, token, marketplace, search["keywords"], settings.deal_extended_max_price_eur):
                     link = raw.get("itemWebUrl", "")
                     price = raw.get("price", {})
                     condition = raw.get("condition", "")
@@ -569,7 +569,7 @@ def fetch_ram_all() -> list[dict]:
 
         for search in _load_searches(settings.ram_deals_file):
             for marketplace in marketplaces:
-                for raw in _search(client, token, marketplace, search["keywords"]):
+                for raw in _search(client, token, marketplace, search["keywords"], settings.ram_extended_max_price_eur):
                     link = raw.get("itemWebUrl", "")
                     price = raw.get("price", {})
                     condition = raw.get("condition", "")
@@ -588,7 +588,7 @@ def fetch_ram_all() -> list[dict]:
                     price_eur = _to_eur(item_price, native_currency)
                     shipping_eur = _to_eur(shipping, native_currency) if shipping is not None else None
                     total_eur = price_eur + (shipping_eur or 0.0)
-                    if total_eur > settings.deal_extended_max_price_eur:
+                    if total_eur > settings.ram_extended_max_price_eur:
                         continue
 
                     summary = condition
