@@ -98,9 +98,11 @@ _INTEL_WORDED_GEN_RE = re.compile(r"\bi([3579])[\s-](\d{1,2})(?:st|nd|rd|th)\s*g
 _CORE_ULTRA_RE = re.compile(r"core\s*ultra\s*[579]\s*(\d)\d{2}[a-z]{0,2}\b", re.IGNORECASE)
 _RYZEN_MODEL_RE = re.compile(r"ryzen\s*[3579]\s*[\s-]?(\d{4})", re.IGNORECASE)
 # HP explicitly encodes chassis generation as "G<n>" right after the model number (EliteDesk/
-# ProDesk 800/600/400 G1 through G6+) - G1-G3 are pre-2018 DDR3-era Haswell/Ivy Bridge chassis
+# ProDesk 400/600/700/800 G1 through G6+) - G1-G3 are pre-2018 DDR3-era Haswell/Ivy Bridge chassis
 # regardless of what CPU ended up in them, so this catches listings a CPU-model check would miss.
-_HP_GEN_RE = re.compile(r"\b(?:elitedesk|prodesk)\s*\d{3}\s*g(\d)\b", re.IGNORECASE)
+# The EliteDesk/ProDesk sub-brand name is optional - plenty of listings just say "HP 600 G1"
+# without it, so requiring the sub-brand name would miss those entirely.
+_HP_GEN_RE = re.compile(r"\bhp\s*(?:elitedesk|prodesk)?\s*[4678]\d{2}\s*g(\d)\b", re.IGNORECASE)
 # eBay's condition field is a short standardized string ("New", "Used", "For parts or not
 # working", etc) - a "for parts" listing is never a real deal regardless of specs/price.
 _NOT_WORKING_RE = re.compile(r"for parts|not working", re.IGNORECASE)
@@ -212,6 +214,15 @@ def _too_old(text: str) -> str | None:
     if m and int(m.group(1)) < 4:
         return f"pre-G4 HP chassis ({m.group(0)})"
     return None
+
+
+def cpu_disqualify_reason(text: str) -> str | None:
+    """Public entry point for _too_old, for re-validating a CPU string the classifier extracted
+    on its own (from context the deterministic title/aspect scan never saw - e.g. the LLM
+    recognizing "Lenovo M93p" implies an i7-4790 even though the title just says "i7 vPro").
+    The LLM sometimes gets the extraction right but the keep/drop call wrong; this catches that
+    after the fact rather than trusting it silently."""
+    return _too_old(text)
 
 
 def _cpu_tier(text: str) -> int:

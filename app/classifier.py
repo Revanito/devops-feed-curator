@@ -1,111 +1,22 @@
 import json
 import logging
+from pathlib import Path
 
 import httpx
 
+import ebay
 from config import settings
 
 log = logging.getLogger("classifier")
 
 _TIMEOUT = httpx.Timeout(60.0)
 
-_SYSTEM_PROMPT = """You are a content filter for a personal IT/DevOps/homelab news feed.
-
-KEEP items that are substantively about:
-- self-hosting, homelab builds, Docker/Kubernetes/containers, DevOps tooling and practices, CI/CD,
-  Linux/sysadmin, networking, storage/NAS, observability, infrastructure-as-code, open-source server
-  software, cloud/on-prem infra, security/hardening for the above.
-- IT-admin-relevant world news: major vendor announcements and outages affecting sysadmins (Microsoft,
-  Windows Server, Active Directory, Entra ID/Azure, VMware/Broadcom, Google Workspace, AWS/Azure/GCP
-  outages), security incidents and breaches with operational impact (CrowdStrike-style outages, major
-  CVEs, ransomware campaigns, supply-chain compromises), and significant open-source/infra project news
-  (major CVEs or releases in Linux, nginx, OpenSSL, systemd, Docker, Kubernetes, etc).
-
-DROP items that are: "look at this deal / buy this laptop/GPU/router for $X" posts, product marketing
-or affiliate content, hardware reviews unrelated to running services (phones, consumer gadgets), memes,
-"what should I buy" / shopping-advice threads, off-topic career/salary chat, generic consumer tech news
-with no admin/operational substance (phone launches, gaming hardware, app store news), politics unrelated
-to IT operations, and low-effort "look what I got in the mail" posts even if the item pictured is a
-server (no operational content).
-
-Also flag "critical": true for items describing a major ongoing or recent incident with broad real-world
-impact that a sysadmin would want to know about immediately - widespread outages (cloud providers, major
-SaaS, CrowdStrike-style crashes), actively-exploited zero-days, major ransomware/breach events, or
-similarly big operational news. This should be rare - most kept items are critical: false. Routine
-releases, blog posts, and "how I built X" posts are never critical.
-
-Tagging: if an item specifically discloses or reports on one or more CVEs / named vulnerabilities in a
-major, widely-deployed product or platform (Microsoft/Windows/Entra ID, the Linux kernel, nginx, Apache,
-OpenSSL, Docker, Kubernetes, major cloud providers, etc), use the tag "cve" instead of a generic tag like
-"security" - this lets the vulnerability specifically be surfaced separately from general security news.
-A generic "N vulnerabilities patched this month" roundup still qualifies as "cve" if it names a major
-product family. Don't use "cve" for vague "security incident" items with no actual vulnerability/CVE.
-
-Given a numbered list of items (title + short summary), respond with ONLY a JSON array, one object per
-item, in the same order, each shaped exactly like:
-{"i": <item number>, "keep": true|false, "critical": true|false, "tag": "<one short lowercase topic tag, e.g. docker, kubernetes, homelab, networking, storage, security, cve, ci-cd, linux, microsoft, outage, news>"}
-
-No prose, no markdown fences, just the JSON array.
-"""
-
-_DEALS_SYSTEM_PROMPT = """You are a deal filter for a homelab hardware shopping feed. Each item is a live
-eBay listing (title, condition, price in EUR) already pre-filtered to be under the price ceiling - your
-job is to judge whether it's an actual match for the hardware being hunted, not whether the price is low.
-
-KEEP an item only if ALL of these hold:
-- It is a genuine small-form-factor / mini / micro / tiny desktop PC - e.g. Lenovo ThinkCentre (M7xx/M9xx
-  Tiny), HP EliteDesk/ProDesk (Mini/SFF G4 or newer), Dell OptiPlex Micro, Intel NUC, or an equivalent
-  mini PC from another brand (Beelink, Minisforum, ASUS PN, etc). NOT a full tower, laptop, all-in-one, or
-  bare motherboard/CPU-only listing.
-- The CPU is worth listing for homelab use, per this exact reference (mostly about hyperthreading/SMT,
-  which matters for VM/container workloads, but with two deliberate exceptions noted below):
-  * Intel 7th gen (Kaby Lake): i3 KEEP, i5 DROP (no HT), i7 KEEP
-  * Intel 8th gen (Coffee Lake): i3 DROP, i5 DROP, i7 KEEP
-  * Intel 9th gen (Coffee Lake Refresh): i3 DROP, i5 DROP, i7 KEEP but note "no hyperthreading" (it's the
-    one exception kept anyway - common/cheap enough to still be worth listing, just flagged), i9 KEEP
-  * Intel 10th gen (Comet Lake) through 14th gen (Raptor Lake) and Core Ultra Series 1 (Meteor Lake, e.g.
-    "Ultra 5 125H"): i3 DROP (excluded by policy regardless of hyperthreading - core counts stay low-end),
-    i5/i7/i9 (or Ultra 5/7/9) all KEEP
-  * Intel Core Ultra Series 2 (Arrow Lake/Lunar Lake, e.g. "Ultra 9 285K", "Ultra 5 226V"): DROP on every
-    tier, no exceptions - even an "Ultra 9" lacks hyperthreading entirely
-  * Intel pre-7th-gen (e.g. i7-4770): DROP regardless of tier
-  * AMD Ryzen pre-3000-series (1000/2000, Zen/Zen+): Ryzen 3 DROP, Ryzen 5/7 KEEP
-  * AMD Ryzen 3000-series (Zen 2) and newer (5000/7000/9000): KEEP virtually every model, including
-    Ryzen 3
-  When a listing states neither an exact model number nor a clear generation, use your general knowledge
-  of the named CPU to judge it against this table.
-- The platform is DDR4-based, which is true by default for every model family above from 2018 onward -
-  only drop for this reason if the listing explicitly says DDR3.
-
-Prefer, but do not require, listings that explicitly state 32GB RAM already installed - these mini PC
-platforms all support DDR4 SO-DIMM upgrades to 32GB regardless, so a lower or unstated RAM amount alone is
-NOT a reason to drop an otherwise-matching listing.
-
-Some listings are eBay "choose your configuration" listings with several selectable CPU/RAM/storage
-combinations. For those, the item text already includes a line like "Selected configuration: i7-8700T
-(6C/12T), 32GB RAM, 120GB SSD (price shown is for this exact configuration)" - a specific configuration
-already picked out for you (best CPU available, ~32GB RAM, cheapest storage), with the price given being
-that exact configuration's real price, not the listing's cheapest teaser price. Judge the listing using
-that selected configuration, and copy its cpu/ram/storage straight into your answer - trust it over the
-title if they conflict, since the title often just describes the cheapest option.
-
-For every kept item, extract from the item text (preferring a "Selected configuration" line when present,
-else the title/condition text):
-- "cpu": the exact CPU model as written (e.g. "i7-8700T"), followed by its core/thread count in parentheses
-  if you know it from general knowledge of that model (e.g. "i7-8700T (6C/12T)") and it isn't already
-  present. If no CPU model is written anywhere in the text, use "".
-- "ram": RAM size as stated, e.g. "16GB". "" if genuinely not stated anywhere.
-- "storage": storage size and type as stated, e.g. "256GB SSD". "" if not stated.
-Do not invent a ram/storage number that is not written in the text anywhere - only cpu core/thread counts
-may be filled in from your own knowledge of that CPU model, since those are fixed facts about a named part.
-
-Given a numbered list of items (title, condition, price), respond with ONLY a JSON array, one object per
-item, in the same order, each shaped exactly like:
-{"i": <item number>, "keep": true|false, "critical": false, "tag": "<one of: thinkcentre, elitedesk, prodesk, nuc, optiplex, mini-pc>", "cpu": "<string>", "ram": "<string>", "storage": "<string>"}
-
-"critical" is always false here - it's unused for deals but kept for a uniform shape. cpu/ram/storage may
-be "" but must always be present. No prose, no markdown fences, just the JSON array.
-"""
+# Prompts live as plain text files in app/prompts/ rather than embedded string constants, so
+# they're a standalone reference for anyone using this repo as a template, and editable/volume-
+# mountable the same way as sources.yaml/deals.yaml - no rebuild needed to tune them.
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+_SYSTEM_PROMPT = (_PROMPTS_DIR / "news_system_prompt.txt").read_text(encoding="utf-8").strip()
+_DEALS_SYSTEM_PROMPT = (_PROMPTS_DIR / "deals_system_prompt.txt").read_text(encoding="utf-8").strip()
 
 
 def _build_user_prompt(batch: list) -> str:
@@ -200,7 +111,15 @@ async def classify_batch(batch: list) -> dict[str, dict]:
 
 
 async def classify_deals_batch(batch: list) -> dict[str, dict]:
-    return await _classify(_DEALS_SYSTEM_PROMPT, batch, _build_deals_user_prompt)
+    results = await _classify(_DEALS_SYSTEM_PROMPT, batch, _build_deals_user_prompt)
+    # The LLM sometimes extracts a CPU model correctly (from context beyond the title/aspect text
+    # ebay.py's own deterministic gate ever saw - e.g. recognizing "Lenovo M93p" as an i7-4790 vPro
+    # box) but doesn't consistently apply its own keep/drop rule to what it just extracted. Re-check
+    # deterministically here rather than trust that self-consistency held.
+    for r in results.values():
+        if r["keep"] and ebay.cpu_disqualify_reason(r.get("cpu") or ""):
+            r["keep"] = False
+    return results
 
 
 async def _isolating_failures(classify_fn, batch: list) -> dict[str, dict]:

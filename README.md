@@ -132,13 +132,21 @@ not working" (eBay's own standardized condition string) — broken hardware isn'
 or price, so this is checked before anything else, alongside the age/CPU gate.
 
 **Classification.** Results are stored the same way as feed items (`kind = 'deal'`) but classified with a
-*different* system prompt (`classifier.py` `_DEALS_SYSTEM_PROMPT`) that judges the actual hardware match —
+*different* system prompt ([`app/prompts/deals_system_prompt.txt`](app/prompts/deals_system_prompt.txt))
+that judges the actual hardware match —
 genuine mini/micro/tiny form factor, and the same CPU policy table as above (RAM upgradability isn't a hard
 filter even when a listing doesn't state 32GB installed, since these platforms all support it by default).
 The same prompt extracts CPU (with core/thread count filled in from the model's known specs), RAM, and
 storage from the listing text, shown as spec badges on each card — eBay's search API doesn't return
 structured item aspects for non-variation listings, so this relies on the seller having put specs in the
-title, which is near-universal for this category.
+title, which is near-universal for this category. The LLM sometimes correctly identifies a specific CPU
+model from context the deterministic gate never saw — e.g. recognizing "Lenovo M93p" as an i7-4790 vPro
+box even though the title just says "i7 vPro" — but doesn't always then apply its own keep/drop rule
+consistently to what it just extracted. `classify_deals_batch` re-runs `ebay.cpu_disqualify_reason()` on
+whatever `cpu` value came back and forces `keep = false` if it fails, regardless of what the LLM decided —
+the same deterministic table, applied a second time, after the fact. (The HP chassis-generation check also
+no longer requires the literal word "EliteDesk"/"ProDesk" next to the model number — plenty of listings
+just say "HP 600 G1" without the sub-brand name, which the original regex missed entirely.)
 
 **Availability re-checking.** A listing that gets kept stays in the DB indefinitely by default — nothing
 re-validates it, so once a deal sells or gets taken down it would otherwise just sit there forever. Each
@@ -177,9 +185,13 @@ migrates itself on startup, no manual steps or data loss.
 
 ## Tuning the filter
 
-The keep/drop rules live in `app/classifier.py` (`_SYSTEM_PROMPT` for news, `_DEALS_SYSTEM_PROMPT` for
-Homelab Deals). Edit either prompt directly if the filter is too strict or too loose, then rebuild
-(`docker compose up -d --build`) — no code changes needed elsewhere.
+The keep/drop rules are plain text files in [`app/prompts/`](app/prompts/) —
+[`news_system_prompt.txt`](app/prompts/news_system_prompt.txt) for the news feed,
+[`deals_system_prompt.txt`](app/prompts/deals_system_prompt.txt) for Homelab Deals — loaded by
+`classifier.py` at startup rather than embedded in the code, so they double as a standalone reference for
+anyone using this repo as a template for their own LLM-classifier project. Edit either one directly if the
+filter is too strict or too loose; like `sources.yaml`/`deals.yaml`, they're volume-mounted, so no rebuild
+is needed, just a restart (`docker compose restart`, or `up -d --build` if you're also changing code).
 
 ## Adding/removing feeds
 
