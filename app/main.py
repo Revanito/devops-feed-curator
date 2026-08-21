@@ -113,6 +113,14 @@ def _refresh_available() -> bool:
     return datetime.now() - _last_manual_refresh >= cooldown
 
 
+def _deals_label() -> str:
+    return f"Homelab Deals under {settings.deal_max_price_eur}€"
+
+
+def _beyond_label() -> str:
+    return f"Homelab Deals beyond {settings.deal_max_price_eur}€"
+
+
 @app.get("/")
 def index(request: Request):
     items = db.get_curated(limit=300, kind="news")
@@ -126,7 +134,7 @@ def index(request: Request):
         "must_read_items": must_read_items, "cve_items": cve_items,
         "all_tags": all_tags, "css_version": _css_version, "favicon_version": _favicon_version,
         "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
-        "beyond_label": f"{settings.deal_max_price_eur}€ and beyond",
+        "deals_label": _deals_label(), "beyond_label": _beyond_label(),
     })
 
 
@@ -149,7 +157,7 @@ def _render_deals(request: Request, title: str, active: str, items: list):
         "request": request, "refresh_available": _refresh_available(),
         "css_version": _css_version, "favicon_version": _favicon_version,
         "page_title": title, "active_nav": active,
-        "beyond_label": f"{settings.deal_max_price_eur}€ and beyond",
+        "deals_label": _deals_label(), "beyond_label": _beyond_label(),
         "total": n,
         "low_items": low_items, "mid_items": mid_items, "high_items": high_items,
         "low_range": _price_range_label(low_items),
@@ -161,7 +169,7 @@ def _render_deals(request: Request, title: str, active: str, items: list):
 @app.get("/deals")
 def deals(request: Request):
     items = db.get_curated_deals(limit=300, max_total=settings.deal_max_price_eur)
-    return _render_deals(request, "Homelab Deals", "deals", items)
+    return _render_deals(request, _deals_label(), "deals", items)
 
 
 @app.get("/deals/beyond")
@@ -169,7 +177,7 @@ def deals_beyond(request: Request):
     items = db.get_curated_deals(
         limit=300, min_total=settings.deal_max_price_eur, max_total=settings.deal_extended_max_price_eur,
     )
-    return _render_deals(request, f"Homelab Deals - {settings.deal_max_price_eur}€ and beyond", "beyond", items)
+    return _render_deals(request, _beyond_label(), "beyond", items)
 
 
 @app.post("/refresh")

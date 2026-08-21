@@ -83,6 +83,48 @@ _SIZE_WITH_UNIT_RE = re.compile(r"(\d+)\s*(gb|go|tb|to)\b", re.IGNORECASE)
 _BARE_NUMBER_RE = re.compile(r"(\d+)")
 
 
+_INTEL_MODEL_RE = re.compile(r"\bi[3579][\s-](\d{3,5})[a-z]{0,2}\b", re.IGNORECASE)
+_RYZEN_MODEL_RE = re.compile(r"ryzen\s*[3579]\s*[\s-]?(\d{4})", re.IGNORECASE)
+# HP explicitly encodes chassis generation as "G<n>" right after the model number (EliteDesk/
+# ProDesk 800/600/400 G1 through G6+) - G1-G3 are pre-2018 DDR3-era Haswell/Ivy Bridge chassis
+# regardless of what CPU ended up in them, so this catches listings a CPU-model check would miss.
+_HP_GEN_RE = re.compile(r"\b(?:elitedesk|prodesk)\s*\d{3}\s*g(\d)\b", re.IGNORECASE)
+
+
+def _intel_generation(model_digits: str) -> int:
+    """"620" (1st-gen 3-digit models like i7-620) -> 1. "4770" -> 4. "8700" -> 8.
+    "10700"/"1165" (5-digit, or 4-digit starting 10-14 for mobile parts like 1165G7) -> 10/11."""
+    if len(model_digits) == 3:
+        return 1
+    if len(model_digits) >= 4 and model_digits[:2] in ("10", "11", "12", "13", "14"):
+        return int(model_digits[:2])
+    return int(model_digits[0])
+
+
+def _too_old(text: str) -> str | None:
+    """Deterministic pre-filter for obviously pre-2018/DDR3-era hardware, based on the CPU model
+    number or HP's chassis generation suffix when either is stated in the text - cheaper and more
+    reliable than trusting the LLM to always catch this from title text alone (it doesn't always -
+    a G1-chassis ProDesk from 2013 slipped through once). Returns a reason string if too old, else
+    None; a listing with neither signal present passes through unaffected for the LLM to judge."""
+    text = text or ""
+    m = _INTEL_MODEL_RE.search(text)
+    if m:
+        gen = _intel_generation(m.group(1))
+        if gen < 8:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(gen, "th")
+            return f"Intel {gen}{suffix}-gen CPU"
+    m = _RYZEN_MODEL_RE.search(text)
+    if m:
+        series = int(m.group(1)[0]) * 1000
+        if series < 3000:
+            return f"AMD Ryzen {series}-series"
+    m = _HP_GEN_RE.search(text)
+    if m and int(m.group(1)) < 4:
+        return f"pre-G4 HP chassis ({m.group(0)})"
+    return None
+
+
 def _cpu_tier(text: str) -> int:
     """Higher is better. 0 means no recognizable Intel Core iX / Ryzen tier found."""
     text = text or ""
@@ -254,7 +296,10 @@ def fetch_all() -> list[dict]:
                     link = raw.get("itemWebUrl", "")
                     price = raw.get("price", {})
                     condition = raw.get("condition", "")
+                    title = raw.get("title", "(no title)").strip()
                     if not link or not price.get("value"):
+                        continue
+                    if _too_old(title):
                         continue
 
                     # For a multi-variation listing, resolve which specific configuration is
@@ -270,6 +315,10 @@ def fetch_all() -> list[dict]:
                             chosen = resolved["chosen"]
 
                     if chosen and chosen["price"] is not None:
+                        # The chosen variation's own aspect text can name a CPU model the title
+                        # didn't (or vice versa) - re-check now that we have it.
+                        if _too_old(chosen["cpu"] or ""):
+                            continue
                         item_price = chosen["price"]
                         native_currency = chosen["currency"] or price.get("currency", "EUR")
                         shipping = chosen["shipping"] if chosen["shipping"] is not None else _shipping_cost(raw)
@@ -309,7 +358,7 @@ def fetch_all() -> list[dict]:
                     items.append({
                         "id": _item_id(link),
                         "source": f"eBay ({marketplace.removeprefix('EBAY_')})",
-                        "title": raw.get("title", "(no title)").strip(),
+                        "title": title,
                         "link": link,
                         "summary": summary,
                         "published": raw.get("itemCreationDate", ""),

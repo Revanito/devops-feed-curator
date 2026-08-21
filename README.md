@@ -52,6 +52,14 @@ items and admin-relevant IT world news.
   summary text for transparency. `EBAY_GB` listings are also flagged in that text as cross-border
   (post-Brexit) - the buyer may owe import VAT/duty on delivery that eBay's search API has no reliable way
   to quote up front, so that's a warning label rather than a computed number.
+  Before anything reaches the LLM, `ebay.py`'s `_too_old()` deterministically rejects obviously pre-2018/
+  DDR3-era hardware - a 4th-gen-or-older Intel Core CPU, a pre-3000-series Ryzen, or an HP EliteDesk/ProDesk
+  "G1"-"G3" chassis suffix (HP encodes chassis generation right in the model name; G1-G3 predate DDR4
+  entirely regardless of what CPU ended up in one) - whenever the title or a variation's own aspect text
+  states one of those. This exists because the LLM alone got it wrong once (a 2013 ProDesk 600 G1 slipped
+  through), so it's a cheaper, 100%-reliable pre-filter rather than another prompt instruction to hope the
+  model follows every time; a listing with no CPU model or chassis generation stated anywhere just passes
+  through unaffected, same as before, for the LLM to judge on title/form-factor text as usual.
   Results are stored the same way as feed items (`kind = 'deal'`) but classified with a *different* system
   prompt (`classifier.py` `_DEALS_SYSTEM_PROMPT`) that judges the actual hardware match - genuine
   mini/micro/tiny form factor, Intel i7/i9 8th-gen-or-newer (or AMD Ryzen 5/7/9 3000-series-or-newer) -

@@ -18,10 +18,10 @@
   </article>
 {% endmacro %}
 
-{% macro nav(active, beyond_label='Beyond Budget') %}
+{% macro nav(active, deals_label='Homelab Deals', beyond_label='Beyond Budget') %}
   <nav class="page-nav">
     <a class="page-nav-link{{ ' active' if active == 'news' else '' }}" href="/">News</a>
-    <a class="page-nav-link{{ ' active' if active == 'deals' else '' }}" href="/deals">Homelab Deals</a>
+    <a class="page-nav-link{{ ' active' if active == 'deals' else '' }}" href="/deals">{{ deals_label }}</a>
     <a class="page-nav-link{{ ' active' if active == 'beyond' else '' }}" href="/deals/beyond">{{ beyond_label }}</a>
   </nav>
 {% endmacro %}
