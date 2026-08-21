@@ -16,7 +16,11 @@ from fastapi.templating import Jinja2Templates
 import db
 import ebay
 import feeds
-from classifier import classify_batch_isolating_failures, classify_deals_batch_isolating_failures
+from classifier import (
+    classify_batch_isolating_failures,
+    classify_deals_batch_isolating_failures,
+    classify_ram_batch_isolating_failures,
+)
 from config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -46,16 +50,22 @@ async def poll_and_classify() -> None:
         deal_inserted = db.insert_new_items(deal_items)
         log.info("fetched %d deal listings, %d new", len(deal_items), deal_inserted)
 
+        log.info("polling eBay RAM deals...")
+        ram_items = await asyncio.to_thread(ebay.fetch_ram_all)
+        ram_inserted = db.insert_new_items(ram_items)
+        log.info("fetched %d RAM listings, %d new", len(ram_items), ram_inserted)
+
         to_recheck = db.get_deals_to_recheck(settings.deal_recheck_batch_size)
         if to_recheck:
             gone_ids, checked_ids = await asyncio.to_thread(ebay.check_availability, to_recheck)
             db.mark_checked(checked_ids)
             db.delete_items(gone_ids)
-            log.info("re-checked %d deal listings, %d no longer available on eBay",
+            log.info("re-checked %d eBay listings, %d no longer available",
                       len(checked_ids), len(gone_ids))
 
         await _classify_pending("news", classify_batch_isolating_failures)
         await _classify_pending("deal", classify_deals_batch_isolating_failures)
+        await _classify_pending("ram", classify_ram_batch_isolating_failures)
 
 
 async def _classify_pending(kind: str, classify_fn) -> None:
@@ -129,6 +139,22 @@ def _beyond_label() -> str:
     return f"Homelab Deals beyond {settings.deal_max_price_eur}€"
 
 
+def _ram_label() -> str:
+    return f"RAM Deals under {settings.deal_max_price_eur}€"
+
+
+def _ram_beyond_label() -> str:
+    return f"RAM Deals beyond {settings.deal_max_price_eur}€"
+
+
+def _nav_context() -> dict:
+    """Shared nav-button labels, passed to every page's template context."""
+    return {
+        "deals_label": _deals_label(), "beyond_label": _beyond_label(),
+        "ram_label": _ram_label(), "ram_beyond_label": _ram_beyond_label(),
+    }
+
+
 @app.get("/")
 def index(request: Request):
     items = db.get_curated(limit=300, kind="news")
@@ -142,7 +168,7 @@ def index(request: Request):
         "must_read_items": must_read_items, "cve_items": cve_items,
         "all_tags": all_tags, "css_version": _css_version, "favicon_version": _favicon_version,
         "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
-        "deals_label": _deals_label(), "beyond_label": _beyond_label(),
+        **_nav_context(),
     })
 
 
@@ -165,7 +191,7 @@ def _render_deals(request: Request, title: str, active: str, items: list):
         "request": request, "refresh_available": _refresh_available(),
         "css_version": _css_version, "favicon_version": _favicon_version,
         "page_title": title, "active_nav": active,
-        "deals_label": _deals_label(), "beyond_label": _beyond_label(),
+        **_nav_context(),
         "total": n,
         "low_items": low_items, "mid_items": mid_items, "high_items": high_items,
         "low_range": _price_range_label(low_items),
@@ -176,7 +202,7 @@ def _render_deals(request: Request, title: str, active: str, items: list):
 
 @app.get("/deals")
 def deals(request: Request):
-    items = db.get_curated_deals(limit=300, max_total=settings.deal_max_price_eur)
+    items = db.get_curated_deals(limit=300, max_total=settings.deal_max_price_eur, kind="deal")
     return _render_deals(request, _deals_label(), "deals", items)
 
 
@@ -184,8 +210,24 @@ def deals(request: Request):
 def deals_beyond(request: Request):
     items = db.get_curated_deals(
         limit=300, min_total=settings.deal_max_price_eur, max_total=settings.deal_extended_max_price_eur,
+        kind="deal",
     )
     return _render_deals(request, _beyond_label(), "beyond", items)
+
+
+@app.get("/ram")
+def ram_deals(request: Request):
+    items = db.get_curated_deals(limit=300, max_total=settings.deal_max_price_eur, kind="ram")
+    return _render_deals(request, _ram_label(), "ram", items)
+
+
+@app.get("/ram/beyond")
+def ram_deals_beyond(request: Request):
+    items = db.get_curated_deals(
+        limit=300, min_total=settings.deal_max_price_eur, max_total=settings.deal_extended_max_price_eur,
+        kind="ram",
+    )
+    return _render_deals(request, _ram_beyond_label(), "ram-beyond", items)
 
 
 @app.post("/refresh")

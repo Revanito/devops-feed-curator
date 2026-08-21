@@ -7,22 +7,26 @@
       {% if item.tag %}<span class="tag">{{ item.tag }}</span>{% endif %}
       <span class="published">{{ item.published }}</span>
     </div>
-    {% if item.cpu or item.ram or item.storage %}
+    {% if item.cpu or item.ram or item.storage or item.capacity or item.kit %}
     <div class="specs">
       {% if item.cpu %}<span class="spec">{{ item.cpu }}</span>{% endif %}
       {% if item.ram %}<span class="spec">{{ item.ram }} RAM</span>{% endif %}
       {% if item.storage %}<span class="spec">{{ item.storage }}</span>{% endif %}
+      {% if item.capacity %}<span class="spec">{{ item.capacity }}</span>{% endif %}
+      {% if item.kit %}<span class="spec">{{ item.kit }}</span>{% endif %}
     </div>
     {% endif %}
     {% if item.summary %}<p class="summary">{{ item.summary|striptags }}</p>{% endif %}
   </article>
 {% endmacro %}
 
-{% macro nav(active, deals_label='Homelab Deals', beyond_label='Beyond Budget') %}
+{% macro nav(active, deals_label='Homelab Deals', beyond_label='Beyond Budget', ram_label='RAM Deals', ram_beyond_label='RAM Deals Beyond') %}
   <nav class="page-nav">
     <a class="page-nav-link{{ ' active' if active == 'news' else '' }}" href="/">News</a>
     <a class="page-nav-link{{ ' active' if active == 'deals' else '' }}" href="/deals">{{ deals_label }}</a>
     <a class="page-nav-link{{ ' active' if active == 'beyond' else '' }}" href="/deals/beyond">{{ beyond_label }}</a>
+    <a class="page-nav-link{{ ' active' if active == 'ram' else '' }}" href="/ram">{{ ram_label }}</a>
+    <a class="page-nav-link{{ ' active' if active == 'ram-beyond' else '' }}" href="/ram/beyond">{{ ram_beyond_label }}</a>
   </nav>
 {% endmacro %}
 

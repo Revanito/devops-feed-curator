@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS items (
     cpu TEXT,
     ram TEXT,
     storage TEXT,
-    last_checked_at TEXT
+    last_checked_at TEXT,
+    capacity TEXT,
+    kit TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_items_keep_published ON items (keep, published);
 """
@@ -50,6 +52,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE items ADD COLUMN storage TEXT")
     if "last_checked_at" not in columns:
         conn.execute("ALTER TABLE items ADD COLUMN last_checked_at TEXT")
+    if "capacity" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN capacity TEXT")
+    if "kit" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN kit TEXT")
 
     # One-time backfill: items ingested before feeds.py stripped HTML from summaries can have
     # raw/mid-tag-truncated markup baked into this column - which was making 1min.ai reject the
@@ -109,9 +115,9 @@ def apply_classifications(results: dict[str, dict]) -> None:
         for item_id, r in results.items():
             conn.execute(
                 """UPDATE items SET classified = 1, keep = ?, tag = ?, critical = ?,
-                       cpu = ?, ram = ?, storage = ? WHERE id = ?""",
+                       cpu = ?, ram = ?, storage = ?, capacity = ?, kit = ? WHERE id = ?""",
                 (1 if r["keep"] else 0, r["tag"], 1 if r["critical"] else 0,
-                 r.get("cpu"), r.get("ram"), r.get("storage"), item_id),
+                 r.get("cpu"), r.get("ram"), r.get("storage"), r.get("capacity"), r.get("kit"), item_id),
             )
 
 
@@ -130,10 +136,11 @@ def get_curated(limit: int = 100, kind: str | None = None) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def get_curated_deals(limit: int = 300, min_total: float | None = None, max_total: float | None = None) -> list[sqlite3.Row]:
+def get_curated_deals(limit: int = 300, min_total: float | None = None, max_total: float | None = None,
+                       kind: str = "deal") -> list[sqlite3.Row]:
     with get_conn() as conn:
-        clauses = ["classified = 1", "keep = 1", "kind = 'deal'"]
-        params: list = []
+        clauses = ["classified = 1", "keep = 1", "kind = ?"]
+        params: list = [kind]
         if min_total is not None:
             clauses.append("(price + COALESCE(shipping, 0)) > ?")
             params.append(min_total)
@@ -149,13 +156,14 @@ def get_curated_deals(limit: int = 300, min_total: float | None = None, max_tota
 
 
 def get_deals_to_recheck(limit: int = 50) -> list[sqlite3.Row]:
-    """Kept deal listings due for an eBay availability check, never-checked ones first, then the
-    ones checked longest ago - so a sweep of `limit` per poll steadily cycles through the whole
-    set over time regardless of how many listings have piled up."""
+    """Kept eBay-backed listings (mini-PC deals and RAM deals share this sweep/budget) due for an
+    availability check, never-checked ones first, then the ones checked longest ago - so a sweep
+    of `limit` per poll steadily cycles through the whole set over time regardless of how many
+    listings have piled up."""
     with get_conn() as conn:
         return conn.execute(
             """SELECT id, link, source FROM items
-               WHERE kind = 'deal' AND classified = 1 AND keep = 1
+               WHERE kind IN ('deal', 'ram') AND classified = 1 AND keep = 1
                ORDER BY (last_checked_at IS NULL) DESC, last_checked_at ASC LIMIT ?""",
             (limit,),
         ).fetchall()

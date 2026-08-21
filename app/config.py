@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # while still surfacing higher-end matches for a looser budget.
     deal_extended_max_price_eur: int = 1500
     deals_file: str = "deals.yaml"
+    ram_deals_file: str = "ram_deals.yaml"
 
     # Baseline GBP->EUR rate, not live-fetched - update this occasionally by hand if it drifts far
     # from reality. Good enough for "is this roughly under budget", not for actual accounting.

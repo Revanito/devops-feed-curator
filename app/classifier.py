@@ -17,6 +17,7 @@ _TIMEOUT = httpx.Timeout(60.0)
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _SYSTEM_PROMPT = (_PROMPTS_DIR / "news_system_prompt.txt").read_text(encoding="utf-8").strip()
 _DEALS_SYSTEM_PROMPT = (_PROMPTS_DIR / "deals_system_prompt.txt").read_text(encoding="utf-8").strip()
+_RAM_SYSTEM_PROMPT = (_PROMPTS_DIR / "ram_system_prompt.txt").read_text(encoding="utf-8").strip()
 
 
 def _build_user_prompt(batch: list) -> str:
@@ -28,6 +29,8 @@ def _build_user_prompt(batch: list) -> str:
 
 
 def _build_deals_user_prompt(batch: list) -> str:
+    """Shared by both eBay-backed prompts (mini-PC deals and RAM deals) - same price/shipping/
+    condition formatting works for either, since it's just item metadata, not deal-type-specific."""
     lines = []
     for i, row in enumerate(batch, start=1):
         if row["price"]:
@@ -99,9 +102,14 @@ async def _classify(system_prompt: str, batch: list, build_prompt) -> dict[str, 
             "keep": bool(entry.get("keep", False)),
             "tag": str(entry.get("tag", ""))[:30],
             "critical": bool(entry.get("critical", False)),
+            # cpu/ram/storage are the mini-PC deals fields; capacity/kit are the RAM deals fields.
+            # Harmless no-ops for whichever kind's prompt didn't ask for a given field - the LLM
+            # just never returns that key, and .get() here defaults it to "".
             "cpu": str(entry.get("cpu") or "")[:60],
             "ram": str(entry.get("ram") or "")[:30],
             "storage": str(entry.get("storage") or "")[:30],
+            "capacity": str(entry.get("capacity") or "")[:30],
+            "kit": str(entry.get("kit") or "")[:30],
         }
     return results
 
@@ -154,3 +162,19 @@ async def classify_batch_isolating_failures(batch: list) -> dict[str, dict]:
 
 async def classify_deals_batch_isolating_failures(batch: list) -> dict[str, dict]:
     return await _isolating_failures(classify_deals_batch, batch)
+
+
+async def classify_ram_batch(batch: list) -> dict[str, dict]:
+    results = await _classify(_RAM_SYSTEM_PROMPT, batch, _build_deals_user_prompt)
+    # Same deterministic re-check pattern as classify_deals_batch: re-verify DDR generation
+    # against the actual listing title after the fact, rather than trust that the LLM's keep
+    # decision and its own "tag" output stayed consistent with what the title actually says.
+    titles = {row["id"]: row["title"] for row in batch}
+    for item_id, r in results.items():
+        if r["keep"] and ebay.ram_disqualify_reason(titles.get(item_id, "")):
+            r["keep"] = False
+    return results
+
+
+async def classify_ram_batch_isolating_failures(batch: list) -> dict[str, dict]:
+    return await _isolating_failures(classify_ram_batch, batch)

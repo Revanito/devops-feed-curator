@@ -8,6 +8,7 @@ services:
       - ./data:/data
       - ./app/sources.yaml:/app/sources.yaml
       - ./app/deals.yaml:/app/deals.yaml
+      - ./app/ram_deals.yaml:/app/ram_deals.yaml
       - ./app/prompts:/app/prompts
     env_file:
       - .env

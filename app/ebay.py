@@ -41,8 +41,8 @@ _token: str | None = None
 _token_expires_at: float = 0.0
 
 
-def _load_searches() -> list[dict]:
-    with open(settings.deals_file) as f:
+def _load_searches(path: str) -> list[dict]:
+    with open(path) as f:
         data = yaml.safe_load(f)
     return data.get("searches", [])
 
@@ -110,6 +110,43 @@ _NOT_WORKING_RE = re.compile(r"for parts|not working", re.IGNORECASE)
 
 def _not_working(condition: str) -> bool:
     return bool(_NOT_WORKING_RE.search(condition or ""))
+
+
+# RAM deals: only DDR4/DDR5 qualify - DDR3-or-older is dropped outright regardless of price or
+# capacity, since it isn't compatible with the platforms this feed is for. Unlike the CPU gate,
+# there's no "keep-warn"/policy nuance here - it's a hard compatibility fact, not a judgment call.
+_DDR_GEN_RE = re.compile(r"\bddr\s*([2-5])\b", re.IGNORECASE)
+# "2x16GB" / "2 x 16 GB" style kit notation, captured separately from a bare total so the card can
+# show the real stick configuration ("2x16GB") rather than just the total ("32GB").
+_RAM_KIT_RE = re.compile(r"\b(\d+)\s*x\s*(\d+)\s*gb\b", re.IGNORECASE)
+_RAM_CAPACITY_RE = re.compile(r"\b(\d+)\s*gb\b", re.IGNORECASE)
+
+
+def _ram_generation_reason(text: str) -> str | None:
+    m = _DDR_GEN_RE.search(text or "")
+    if m and int(m.group(1)) < 4:
+        return f"DDR{m.group(1)} (only DDR4/DDR5 accepted)"
+    return None
+
+
+def ram_disqualify_reason(text: str) -> str | None:
+    """Public entry point for _ram_generation_reason, for re-validating a listing's title against
+    what the RAM classifier decided - same pattern as cpu_disqualify_reason above."""
+    return _ram_generation_reason(text)
+
+
+def _parse_ram_kit(text: str) -> tuple[str, str]:
+    """(capacity, kit) display strings, e.g. ("32GB", "2x16GB") for a kit, ("16GB", "") for a
+    single stick, ("", "") if neither is stated anywhere."""
+    text = text or ""
+    m = _RAM_KIT_RE.search(text)
+    if m:
+        qty, each = int(m.group(1)), int(m.group(2))
+        return f"{qty * each}GB", f"{qty}x{each}GB"
+    m = _RAM_CAPACITY_RE.search(text)
+    if m:
+        return f"{m.group(1)}GB", ""
+    return "", ""
 
 # Intel Core keep/drop policy by generation+family. This isn't pure hyperthreading fact (see the
 # comment on _intel_policy below for the two deliberate exceptions) - it's what's actually worth
@@ -415,7 +452,7 @@ def fetch_all() -> list[dict]:
         if not token:
             return []
 
-        for search in _load_searches():
+        for search in _load_searches(settings.deals_file):
             for marketplace in marketplaces:
                 for raw in _search(client, token, marketplace, search["keywords"]):
                     link = raw.get("itemWebUrl", "")
@@ -509,6 +546,77 @@ def fetch_all() -> list[dict]:
                         "shipping": shipping_eur,
                         "currency": "EUR",
                         "kind": "deal",
+                    })
+    return items
+
+
+def fetch_ram_all() -> list[dict]:
+    """RAM deals reuse the same fetch/pricing/currency/availability machinery as the mini-PC
+    pipeline above, but deliberately skip multi-variation ("choose your capacity") resolution -
+    that machinery exists to pick the best *CPU*, which has no analogue here. A listing offering
+    several capacities as one eBay variation group is reported using its base search-result price
+    and title, same as any other simple listing; the price/capacity pairing for such a listing may
+    not line up precisely (same class of caveat as the storage-not-resolved note on mini-PC deals)."""
+    if not settings.ebay_client_id or not settings.ebay_client_secret:
+        return []
+
+    marketplaces = [m.strip() for m in settings.ebay_marketplaces.split(",") if m.strip()]
+    items = []
+    with httpx.Client(timeout=_TIMEOUT) as client:
+        token = _get_token(client)
+        if not token:
+            return []
+
+        for search in _load_searches(settings.ram_deals_file):
+            for marketplace in marketplaces:
+                for raw in _search(client, token, marketplace, search["keywords"]):
+                    link = raw.get("itemWebUrl", "")
+                    price = raw.get("price", {})
+                    condition = raw.get("condition", "")
+                    title = raw.get("title", "(no title)").strip()
+                    if not link or not price.get("value"):
+                        continue
+                    if _not_working(condition):
+                        continue
+                    if _ram_generation_reason(title):
+                        continue
+
+                    native_currency = price.get("currency", "EUR")
+                    item_price = float(price["value"])
+                    shipping = _shipping_cost(raw)
+
+                    price_eur = _to_eur(item_price, native_currency)
+                    shipping_eur = _to_eur(shipping, native_currency) if shipping is not None else None
+                    total_eur = price_eur + (shipping_eur or 0.0)
+                    if total_eur > settings.deal_extended_max_price_eur:
+                        continue
+
+                    summary = condition
+                    capacity, kit = _parse_ram_kit(title)
+                    if capacity:
+                        parsed = f"{kit} ({capacity} total)" if kit else capacity
+                        summary = f"Parsed capacity: {parsed}. {summary}".strip()
+                    if shipping:
+                        summary = f"{summary} | +{shipping:.0f} {native_currency} shipping".strip(" |")
+                    elif shipping is None:
+                        summary = f"{summary} | shipping cost shown at checkout".strip(" |")
+                    if native_currency != "EUR":
+                        summary = (f"{summary} | converted from {item_price + (shipping or 0):.0f} "
+                                   f"{native_currency} at ~{settings.gbp_to_eur_rate:.2f} EUR/GBP").strip(" |")
+                    if marketplace in _CROSS_BORDER_MARKETPLACES:
+                        summary = f"{summary} | ships from UK - possible import VAT/duty on delivery".strip(" |")
+
+                    items.append({
+                        "id": _item_id(link),
+                        "source": f"eBay ({marketplace.removeprefix('EBAY_')})",
+                        "title": title,
+                        "link": link,
+                        "summary": summary,
+                        "published": raw.get("itemCreationDate", ""),
+                        "price": price_eur,
+                        "shipping": shipping_eur,
+                        "currency": "EUR",
+                        "kind": "ram",
                     })
     return items
 

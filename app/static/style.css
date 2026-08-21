@@ -48,6 +48,8 @@ header h1 {
 .page-nav {
   display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .page-nav-link {

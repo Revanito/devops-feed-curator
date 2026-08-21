@@ -1,6 +1,6 @@
 # devops-feed-curator
 
-A small self-hosted webpage with two LLM-curated feeds.
+A small self-hosted webpage with three LLM-curated feeds.
 
 **News.** Pulls IT/DevOps/homelab/IT-news RSS feeds (Reddit, Hacker News, and a handful of blogs and
 security/news sites) and filters out the noise — shopping/deal posts, "what should I buy" threads,
@@ -12,10 +12,14 @@ small-form-factor PCs — Lenovo ThinkCentre Tiny, HP EliteDesk/ProDesk Mini, In
 — worth building a homelab node out of, and applies the same LLM-judged approach to keep only genuine
 matches: real mini-PC form factor, modern-enough CPU generation, not just a keyword hit on the title.
 
+**RAM Deals.** Same eBay-backed approach applied to memory upgrades: DDR4/DDR5 sticks and kits (single
+modules or 2x/4x configurations), with anything DDR3-or-older dropped outright regardless of price.
+
 ## How it works
 
-Three pages, sharing one poll/classify cycle and one nav bar (top-right, on every page): **News** (`/`),
-**Homelab Deals** (`/deals`), and **Homelab Deals beyond €500** (`/deals/beyond`).
+Five pages, sharing one poll/classify cycle and one nav bar (top-right, on every page): **News** (`/`),
+**Homelab Deals** (`/deals`), **Homelab Deals beyond €500** (`/deals/beyond`), **RAM Deals** (`/ram`), and
+**RAM Deals beyond €500** (`/ram/beyond`).
 
 ### News feed (`/`)
 
@@ -150,15 +154,46 @@ just say "HP 600 G1" without the sub-brand name, which the original regex missed
 
 **Availability re-checking.** A listing that gets kept stays in the DB indefinitely by default — nothing
 re-validates it, so once a deal sells or gets taken down it would otherwise just sit there forever. Each
-poll, `DEAL_RECHECK_BATCH_SIZE` (default 50) already-kept listings — the ones never checked or checked
-longest ago — get looked up again via eBay's `get_item_by_legacy_id`; a 404 (listing ended) or an
-`OUT_OF_STOCK` availability status gets it deleted outright. For a listing that was originally a
-multi-variation "choose your configuration" one, that id turns out to belong to the *group*, not a single
-item, and eBay's API rejects it with a 400 pointing at `get_items_by_item_group` instead — `ebay.py` falls
-back to that endpoint automatically in that case, treating any remaining variation as still available.
-This is a rolling sweep rather than re-checking everything every poll, so the per-poll cost stays flat no
-matter how many listings have accumulated — with the default batch size, the whole set cycles through
-roughly every couple of hours at a typical volume of some tens to ~150 kept listings.
+poll, `DEAL_RECHECK_BATCH_SIZE` (default 50) already-kept listings — mini-PC and RAM deals share this
+rolling budget — the ones never checked or checked longest ago — get looked up again via eBay's
+`get_item_by_legacy_id`; a 404 (listing ended) or an `OUT_OF_STOCK` availability status gets it deleted
+outright. For a listing that was originally a multi-variation "choose your configuration" one, that id
+turns out to belong to the *group*, not a single item, and eBay's API rejects it with a 400 pointing at
+`get_items_by_item_group` instead — `ebay.py` falls back to that endpoint automatically in that case,
+treating any remaining variation as still available. This is a rolling sweep rather than re-checking
+everything every poll, so the per-poll cost stays flat no matter how many listings have accumulated — with
+the default batch size, the whole set cycles through roughly every couple of hours at a typical volume of
+some tens to ~150 kept listings.
+
+### RAM Deals (`/ram`, `/ram/beyond`)
+
+The same eBay pipeline as Homelab Deals — sourcing, EUR conversion, price ceilings/pages, not-working
+filter, and availability re-checking are all shared code (`ebay.fetch_ram_all()`, searches defined in
+[`app/ram_deals.yaml`](app/ram_deals.yaml)) — applied to memory instead of mini PCs, with its own
+deterministic gate and prompt
+([`app/prompts/ram_system_prompt.txt`](app/prompts/ram_system_prompt.txt)).
+
+**Generation gate.** `ebay.py`'s `_ram_generation_reason()` rejects anything explicitly stated as DDR3,
+DDR2, or older, regardless of price or capacity — a hard compatibility fact, not a judgment call, so
+there's no policy nuance here the way there is for CPUs. A listing that doesn't state a DDR generation at
+all just passes through for the LLM to judge, same as elsewhere in this app; in practice this is rare, since
+sellers virtually always state DDR generation for RAM (it's the first thing a buyer needs to know).
+
+**Capacity/kit parsing.** `_parse_ram_kit()` extracts "2x16GB"-style kit notation separately from a bare
+total, so a card shows the real stick configuration ("2x16GB") alongside the total ("32GB") rather than
+just one or the other. This parsed hint gets folded into the summary text the same way the mini-PC
+pipeline hints at a "Selected configuration" — cheap, deterministic, and gives the LLM something concrete
+to just confirm rather than re-derive from scratch.
+
+**Scope note - no variation-group resolution.** Unlike mini-PC deals, RAM listings don't get the
+multi-variation "choose your configuration" treatment (`_pick_best_variation` and friends) - that
+machinery exists specifically to pick the best *CPU* among a listing's options, which has no RAM analogue
+(there's no obviously-correct capacity to prefer the way there's an obviously-correct CPU tier). A RAM
+listing offering several capacities as one eBay variation group is reported using its base search-result
+price and title like any other simple listing, so the price/capacity pairing for such a listing may not
+line up precisely - the same class of caveat as the storage-not-resolved note on mini-PC deals. This is a
+deliberate v1 scope decision, not an oversight; extending variation-resolution to RAM is a reasonable
+follow-up if it turns out to matter in practice.
 
 ### Refreshing
 
@@ -187,11 +222,12 @@ migrates itself on startup, no manual steps or data loss.
 
 The keep/drop rules are plain text files in [`app/prompts/`](app/prompts/) —
 [`news_system_prompt.txt`](app/prompts/news_system_prompt.txt) for the news feed,
-[`deals_system_prompt.txt`](app/prompts/deals_system_prompt.txt) for Homelab Deals — loaded by
-`classifier.py` at startup rather than embedded in the code, so they double as a standalone reference for
-anyone using this repo as a template for their own LLM-classifier project. Edit either one directly if the
-filter is too strict or too loose; like `sources.yaml`/`deals.yaml`, they're volume-mounted, so no rebuild
-is needed, just a restart (`docker compose restart`, or `up -d --build` if you're also changing code).
+[`deals_system_prompt.txt`](app/prompts/deals_system_prompt.txt) for Homelab Deals,
+[`ram_system_prompt.txt`](app/prompts/ram_system_prompt.txt) for RAM Deals — loaded by `classifier.py` at
+startup rather than embedded in the code, so they double as a standalone reference for anyone using this
+repo as a template for their own LLM-classifier project. Edit any of them directly if the filter is too
+strict or too loose; like `sources.yaml`/`deals.yaml`, they're volume-mounted, so no rebuild is needed,
+just a restart (`docker compose restart`, or `up -d --build` if you're also changing code).
 
 ## Adding/removing feeds
 
@@ -200,8 +236,9 @@ subreddit URL. No restart required — the file is volume-mounted and read fresh
 
 ## Adding/removing eBay deal searches
 
-Edit `app/deals.yaml` — each entry is just a `name` and an eBay `keywords` search string, run against every
-marketplace in `EBAY_MARKETPLACES`. Volume-mounted like `sources.yaml`, so no rebuild needed.
+Edit `app/deals.yaml` (mini-PC deals) or `app/ram_deals.yaml` (RAM deals) — each entry is just a `name` and
+an eBay `keywords` search string, run against every marketplace in `EBAY_MARKETPLACES`. Volume-mounted like
+`sources.yaml`, so no rebuild needed.
 
 ## Re-qualifying stored deal listings after a pricing/parsing logic change
 

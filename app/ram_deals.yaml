@@ -1,0 +1,21 @@
+# eBay searches polled for the "RAM Deals" pages. Add/remove freely - no code changes needed.
+# Each entry is a keyword search run against every marketplace in EBAY_MARKETPLACES, same as
+# deals.yaml. DDR3-or-older results are dropped deterministically regardless of what matches here
+# (see ebay.py _ram_generation_reason), so these searches can stay broad.
+searches:
+  - name: DDR4 16GB
+    keywords: "ddr4 16gb ram"
+  - name: DDR4 32GB
+    keywords: "ddr4 32gb ram"
+  - name: DDR4 2x16GB kit
+    keywords: "ddr4 2x16gb ram kit"
+  - name: DDR4 2x32GB kit
+    keywords: "ddr4 2x32gb ram kit"
+  - name: DDR5 16GB
+    keywords: "ddr5 16gb ram"
+  - name: DDR5 32GB
+    keywords: "ddr5 32gb ram"
+  - name: DDR5 2x16GB kit
+    keywords: "ddr5 2x16gb ram kit"
+  - name: DDR5 2x32GB kit
+    keywords: "ddr5 2x32gb ram kit"
