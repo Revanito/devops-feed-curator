@@ -57,12 +57,25 @@ KEEP an item only if ALL of these hold:
   Tiny), HP EliteDesk/ProDesk (Mini/SFF G4 or newer), Dell OptiPlex Micro, Intel NUC, or an equivalent
   mini PC from another brand (Beelink, Minisforum, ASUS PN, etc). NOT a full tower, laptop, all-in-one, or
   bare motherboard/CPU-only listing.
-- The CPU is Intel Core i7 (or i9) 8th generation or newer (model numbers like i7-8700T, i7-9700, i7-10700,
-  i7-1165G7, etc - the digit(s) right after "i7-" must be 8 or higher, or a 4-digit model starting 10/11/
-  12/13/14), OR the AMD equivalent: Ryzen 5/7/9 from the 3000 series or newer. Anything older (i7-7xxx,
-  i5, i3, Ryzen 2000-series or older) is a DROP even if cheap.
-- The platform is DDR4-based, which is true by default for every model family listed above from 2018
-  onward - only drop for this reason if the listing explicitly says DDR3.
+- The CPU is worth listing for homelab use, per this exact reference (mostly about hyperthreading/SMT,
+  which matters for VM/container workloads, but with two deliberate exceptions noted below):
+  * Intel 7th gen (Kaby Lake): i3 KEEP, i5 DROP (no HT), i7 KEEP
+  * Intel 8th gen (Coffee Lake): i3 DROP, i5 DROP, i7 KEEP
+  * Intel 9th gen (Coffee Lake Refresh): i3 DROP, i5 DROP, i7 KEEP but note "no hyperthreading" (it's the
+    one exception kept anyway - common/cheap enough to still be worth listing, just flagged), i9 KEEP
+  * Intel 10th gen (Comet Lake) through 14th gen (Raptor Lake) and Core Ultra Series 1 (Meteor Lake, e.g.
+    "Ultra 5 125H"): i3 DROP (excluded by policy regardless of hyperthreading - core counts stay low-end),
+    i5/i7/i9 (or Ultra 5/7/9) all KEEP
+  * Intel Core Ultra Series 2 (Arrow Lake/Lunar Lake, e.g. "Ultra 9 285K", "Ultra 5 226V"): DROP on every
+    tier, no exceptions - even an "Ultra 9" lacks hyperthreading entirely
+  * Intel pre-7th-gen (e.g. i7-4770): DROP regardless of tier
+  * AMD Ryzen pre-3000-series (1000/2000, Zen/Zen+): Ryzen 3 DROP, Ryzen 5/7 KEEP
+  * AMD Ryzen 3000-series (Zen 2) and newer (5000/7000/9000): KEEP virtually every model, including
+    Ryzen 3
+  When a listing states neither an exact model number nor a clear generation, use your general knowledge
+  of the named CPU to judge it against this table.
+- The platform is DDR4-based, which is true by default for every model family above from 2018 onward -
+  only drop for this reason if the listing explicitly says DDR3.
 
 Prefer, but do not require, listings that explicitly state 32GB RAM already installed - these mini PC
 platforms all support DDR4 SO-DIMM upgrades to 32GB regardless, so a lower or unstated RAM amount alone is

@@ -88,12 +88,40 @@ _SIZE_WITH_UNIT_RE = re.compile(r"(\d+)\s*(gb|go|tb|to)\b", re.IGNORECASE)
 _BARE_NUMBER_RE = re.compile(r"(\d+)")
 
 
-_INTEL_MODEL_RE = re.compile(r"\bi[3579][\s-](\d{3,5})[a-z]{0,2}\b", re.IGNORECASE)
+_INTEL_MODEL_RE = re.compile(r"\bi([3579])[\s-](\d{3,5})[a-z]{0,2}\b", re.IGNORECASE)
+# eBay listings often name the generation in words instead of a model number ("Intel Core
+# i5-7th Gen") - a separate pattern since there's no digit-count trick to lean on here.
+_INTEL_WORDED_GEN_RE = re.compile(r"\bi([3579])[\s-](\d{1,2})(?:st|nd|rd|th)\s*gen", re.IGNORECASE)
+# Core Ultra doesn't use the iN-NNNN scheme at all - "Ultra 5 125H" (Series 1, Meteor Lake) vs
+# "Ultra 5 245K" (Series 2, Arrow Lake/Lunar Lake); the leading digit of the 3-digit suffix is
+# the series. Captured separately from family since Ultra's HT story doesn't depend on tier at all.
+_CORE_ULTRA_RE = re.compile(r"core\s*ultra\s*[579]\s*(\d)\d{2}[a-z]{0,2}\b", re.IGNORECASE)
 _RYZEN_MODEL_RE = re.compile(r"ryzen\s*[3579]\s*[\s-]?(\d{4})", re.IGNORECASE)
 # HP explicitly encodes chassis generation as "G<n>" right after the model number (EliteDesk/
 # ProDesk 800/600/400 G1 through G6+) - G1-G3 are pre-2018 DDR3-era Haswell/Ivy Bridge chassis
 # regardless of what CPU ended up in them, so this catches listings a CPU-model check would miss.
 _HP_GEN_RE = re.compile(r"\b(?:elitedesk|prodesk)\s*\d{3}\s*g(\d)\b", re.IGNORECASE)
+# eBay's condition field is a short standardized string ("New", "Used", "For parts or not
+# working", etc) - a "for parts" listing is never a real deal regardless of specs/price.
+_NOT_WORKING_RE = re.compile(r"for parts|not working", re.IGNORECASE)
+
+
+def _not_working(condition: str) -> bool:
+    return bool(_NOT_WORKING_RE.search(condition or ""))
+
+# Intel Core keep/drop policy by generation+family. This isn't pure hyperthreading fact (see the
+# comment on _intel_policy below for the two deliberate exceptions) - it's what's actually worth
+# listing for homelab use. Only 7th-9th gen vary in an irregular way (Intel's naming got
+# inconsistent about HT during Kaby/Coffee Lake); "keep-warn" means list it but flag the caveat on
+# the card since it's still a reasonable cheap option despite lacking HT. Generations not listed
+# here (pre-7th) are always dropped. 10th-gen-and-up all follow the same simple rule (see
+# _intel_policy) so they're not spelled out per-generation here.
+_INTEL_POLICY_BY_GEN = {
+    7: {3: "keep", 5: "drop", 7: "keep"},
+    8: {3: "drop", 5: "drop", 7: "keep"},
+    9: {3: "drop", 5: "drop", 7: "keep-warn", 9: "keep"},
+}
+_INTEL_NO_HT_WARNING = "no hyperthreading (9th-gen i7)"
 
 
 def _intel_generation(model_digits: str) -> int:
@@ -106,24 +134,80 @@ def _intel_generation(model_digits: str) -> int:
     return int(model_digits[0])
 
 
-def _too_old(text: str) -> str | None:
-    """Deterministic pre-filter for obviously pre-2018/DDR3-era hardware, based on the CPU model
-    number or HP's chassis generation suffix when either is stated in the text - cheaper and more
-    reliable than trusting the LLM to always catch this from title text alone (it doesn't always -
-    a G1-chassis ProDesk from 2013 slipped through once). Returns a reason string if too old, else
-    None; a listing with neither signal present passes through unaffected for the LLM to judge."""
+def _intel_policy(family: int, gen: int) -> str:
+    """"keep", "keep-warn", or "drop" for a given Intel Core family+generation. Two deliberate
+    departures from pure hyperthreading fact: 9th-gen i7 lacks HT but is common/cheap enough to
+    still list with a caveat rather than exclude outright ("keep-warn"), and i3 is excluded from
+    10th gen onward even though it does have HT there - a policy call, not a hyperthreading fact,
+    since i3 core counts stay low-end regardless."""
+    if gen >= 10:
+        return "drop" if family == 3 else "keep"
+    entry = _INTEL_POLICY_BY_GEN.get(gen)
+    return entry.get(family, "drop") if entry else "drop"
+
+
+def _intel_drop_reason(family: int, gen: int) -> str:
+    if gen < 7:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(gen, "th")
+        return f"Intel {gen}{suffix}-gen CPU (older than 7th gen)"
+    if family == 3 and gen >= 10:
+        return f"Intel Core i3 {gen}th-gen (i3 excluded regardless of hyperthreading)"
+    return f"Intel Core i{family} {gen}th-gen (no hyperthreading)"
+
+
+def _cpu_verdict(text: str) -> tuple[bool | None, str | None, str | None]:
+    """(qualifies, disqualify_reason, warning). qualifies is True/False when the text names a
+    recognizable CPU, or None when it doesn't (e.g. a listing that only says "Intel Core" with no
+    more detail) - callers should treat None as "can't tell from this text", not as a pass.
+    warning is a non-disqualifying caveat to surface on the card (currently just 9th-gen i7's
+    missing hyperthreading) when qualifies is True."""
     text = text or ""
-    m = _INTEL_MODEL_RE.search(text)
+
+    m = _CORE_ULTRA_RE.search(text)
     if m:
-        gen = _intel_generation(m.group(1))
-        if gen < 8:
-            suffix = {1: "st", 2: "nd", 3: "rd"}.get(gen, "th")
-            return f"Intel {gen}{suffix}-gen CPU"
+        if m.group(1) != "1":
+            return False, "Intel Core Ultra Series 2 (Arrow Lake/Lunar Lake - no hyperthreading at all)", None
+        return True, None, None
+
+    m_worded = _INTEL_WORDED_GEN_RE.search(text)
+    m_numbered = None if m_worded else _INTEL_MODEL_RE.search(text)
+    m = m_worded or m_numbered
+    if m:
+        family = int(m.group(1))
+        gen = int(m.group(2)) if m is m_worded else _intel_generation(m.group(2))
+        policy = _intel_policy(family, gen)
+        if policy == "drop":
+            return False, _intel_drop_reason(family, gen), None
+        return True, None, (_INTEL_NO_HT_WARNING if policy == "keep-warn" else None)
+
     m = _RYZEN_MODEL_RE.search(text)
     if m:
         series = int(m.group(1)[0]) * 1000
         if series < 3000:
-            return f"AMD Ryzen {series}-series"
+            return False, f"AMD Ryzen {series}-series (pre-Zen 2, limited/no SMT)", None
+        # 3000-series (Zen 2) onward: virtually every model has SMT, including most Ryzen 3.
+        return True, None, None
+
+    return None, None, None
+
+
+def _too_old(text: str) -> str | None:
+    """Deterministic pre-filter for hardware that doesn't qualify regardless of what the LLM might
+    conclude from title text alone. The CPU check (_cpu_verdict) is driven by whether that specific
+    generation+family is actually worth listing for homelab use - see _intel_policy - not just
+    brand tier or "8th-gen-or-newer". HP's pre-G4 chassis suffix is a separate, simpler check. This
+    exists because the LLM alone got it wrong twice: a G1-chassis 2013 ProDesk slipped through on
+    generation alone, and a listing titled "i7" whose only real CPU option turned out to be an
+    i5-7th-gen slipped through via a multi-variation group (see _pick_best_variation) where the
+    picker was trusting the shared title over the variation's own data. Returns a reason string if
+    disqualified, else None; text with no recognizable CPU signal at all passes through unaffected
+    for the LLM to judge from context."""
+    text = text or ""
+
+    qualifies, reason, _ = _cpu_verdict(text)
+    if qualifies is False:
+        return reason
+
     m = _HP_GEN_RE.search(text)
     if m and int(m.group(1)) < 4:
         return f"pre-G4 HP chassis ({m.group(0)})"
@@ -187,9 +271,16 @@ def _variation_specs(v: dict) -> dict:
             n, unit = int(m.group(1)), m.group(2).lower()
             storage, storage_gb = f"{n}{m.group(2).upper()}", (n * 1024 if unit in ("tb", "to") else n)
 
+    # Deliberately not blending in v["title"] here - it's the same shared listing title on every
+    # variation, so a generically-optimistic title ("i7") would inflate every configuration's
+    # verdict equally, defeating the point of judging them against each other. Only a variation's
+    # own aspect data should count towards its own verdict.
+    cpu_qualifies, _, cpu_warning = _cpu_verdict(cpu or "")
+
     price = v.get("price", {})
     return {
-        "cpu": cpu, "cpu_tier": _cpu_tier((cpu or "") + " " + v.get("title", "")),
+        "cpu": cpu, "cpu_tier": _cpu_tier(cpu or ""),
+        "cpu_qualifies": cpu_qualifies, "cpu_warning": cpu_warning,
         "ram": ram, "ram_gb": ram_gb,
         "storage": storage, "storage_gb": storage_gb,
         "price": float(price["value"]) if price.get("value") else None,
@@ -200,16 +291,34 @@ def _variation_specs(v: dict) -> dict:
 
 def _pick_best_variation(variations: list[dict]) -> dict | None:
     """Among a listing's selectable configurations, deterministically pick the one worth
-    reporting: best available CPU tier, then RAM as close to 32GB as possible (exact match
-    preferred), then cheapest storage as the tiebreak since storage matters least. Returns that
-    variation's own price - not the listing's cheapest-teaser price, which is often a lesser
-    config than what anyone actually wants."""
+    reporting: a variation that passes the hyperthreading/generation bar (see _cpu_verdict), best
+    CPU tier among those, then RAM as close to 32GB as possible (exact match preferred), then
+    cheapest storage as the tiebreak since storage matters least. Returns that variation's own
+    price - not the listing's cheapest-teaser price, which is often a lesser config than anyone
+    actually wants. Returns None if variations exist but none of them qualify - the caller should
+    treat that as the whole listing not qualifying, not fall back to the listing's shared title."""
     candidates = [v for v in variations if v["price"] is not None]
     if not candidates:
         return None
 
-    best_cpu_tier = max(v["cpu_tier"] for v in candidates)
-    pool = [v for v in candidates if v["cpu_tier"] == best_cpu_tier]
+    known = [v for v in candidates if v["cpu_qualifies"] is not None]
+    if known:
+        # At least one variation states its own CPU explicitly - trust that over the shared
+        # listing title (identical across every variation, so it can't distinguish between them,
+        # and can overstate what a specific configuration actually offers - a listing titled "i7"
+        # whose only real CPU option turned out to be an i5-7th-gen is exactly this case). If none
+        # of the ones that state a CPU actually pass the hyperthreading bar, none of them qualify.
+        qualifying = [v for v in known if v["cpu_qualifies"]]
+        if not qualifying:
+            return None
+        best_cpu_tier = max(v["cpu_tier"] for v in qualifying)
+        pool = [v for v in qualifying if v["cpu_tier"] == best_cpu_tier]
+    else:
+        # No variation states its own CPU at all (e.g. only RAM/storage vary; CPU is fixed and
+        # only named in the shared title) - nothing to rank or verify by here, so keep every
+        # candidate and let the title carry the CPU judgment downstream, same as a non-variation
+        # listing.
+        pool = candidates
 
     exact_32 = [v for v in pool if v["ram_gb"] == 32]
     if exact_32:
@@ -306,18 +415,26 @@ def fetch_all() -> list[dict]:
                         continue
                     if _too_old(title):
                         continue
+                    if _not_working(condition):
+                        continue
 
                     # For a multi-variation listing, resolve which specific configuration is
                     # worth reporting (best CPU, ~32GB RAM, cheapest storage) and use *that* SKU's
                     # own price - not the listing's cheapest-teaser price, which is often a lesser
                     # config than what anyone actually wants and would otherwise get shown as if
                     # it were the real price.
-                    chosen = None
                     group_href = raw.get("itemGroupHref")
                     if group_href:
                         resolved = _resolve_group(client, token, group_href, group_cache)
-                        if resolved:
-                            chosen = resolved["chosen"]
+                        if not resolved:
+                            # Either the group fetch failed, or none of its variations meet the
+                            # CPU bar (_pick_best_variation found only i5-or-below options, say) -
+                            # for a listing we know has multiple configurations, don't fall back
+                            # to trusting the shared title on its own; skip it entirely.
+                            continue
+                        chosen = resolved["chosen"]
+                    else:
+                        chosen = None
 
                     if chosen and chosen["price"] is not None:
                         # The chosen variation's own aspect text can name a CPU model the title
@@ -328,11 +445,13 @@ def fetch_all() -> list[dict]:
                         native_currency = chosen["currency"] or price.get("currency", "EUR")
                         shipping = chosen["shipping"] if chosen["shipping"] is not None else _shipping_cost(raw)
                         cpu_hint, ram_hint, storage_hint = chosen["cpu"], chosen["ram"], chosen["storage"]
+                        cpu_warning = chosen["cpu_warning"]
                     else:
                         item_price = float(price["value"])
                         native_currency = price.get("currency", "EUR")
                         shipping = _shipping_cost(raw)
                         cpu_hint = ram_hint = storage_hint = None
+                        _, _, cpu_warning = _cpu_verdict(title)
 
                     price_eur = _to_eur(item_price, native_currency)
                     shipping_eur = _to_eur(shipping, native_currency) if shipping is not None else None
@@ -349,7 +468,13 @@ def fetch_all() -> list[dict]:
                     summary = condition
                     if cpu_hint or ram_hint or storage_hint:
                         picked = ", ".join(x for x in [cpu_hint, f"{ram_hint} RAM" if ram_hint else None, storage_hint] if x)
-                        summary = f"Selected configuration: {picked} (price shown is for this exact configuration). {summary}".strip()
+                        # Some sellers run storage as a third, independent selector eBay's own
+                        # variation-group data doesn't capture (only CPU x RAM show up as priced
+                        # SKUs) - when that happens don't claim the price accounts for a storage
+                        # size we never actually resolved.
+                        note = ("price shown is for this exact configuration" if storage_hint else
+                                "price may not include storage - size wasn't resolved for this configuration, check listing")
+                        summary = f"Selected configuration: {picked} ({note}). {summary}".strip()
                     if shipping:
                         summary = f"{summary} | +{shipping:.0f} {native_currency} shipping".strip(" |")
                     elif shipping is None:
@@ -359,6 +484,8 @@ def fetch_all() -> list[dict]:
                                    f"{native_currency} at ~{settings.gbp_to_eur_rate:.2f} EUR/GBP").strip(" |")
                     if marketplace in _CROSS_BORDER_MARKETPLACES:
                         summary = f"{summary} | ships from UK - possible import VAT/duty on delivery".strip(" |")
+                    if cpu_warning:
+                        summary = f"{summary} | {cpu_warning}".strip(" |")
 
                     items.append({
                         "id": _item_id(link),

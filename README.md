@@ -72,33 +72,73 @@ badge on each card is always this EUR-equivalent total; the original native amou
 listings, a cross-border/import-VAT warning — post-Brexit charges eBay's API can't quote up front) stays
 visible in the card's summary text for transparency.
 
-**Age filtering.** Before anything reaches the LLM, `ebay.py`'s `_too_old()` deterministically rejects
-obviously pre-2018/DDR3-era hardware — a 4th-gen-or-older Intel Core CPU, a pre-3000-series Ryzen, or an
-HP EliteDesk/ProDesk "G1"–"G3" chassis suffix (HP encodes chassis generation right in the model name) —
-whenever the title or a variation's own aspect text states one of those. This exists because the LLM
-alone got it wrong once (a 2013 ProDesk 600 G1 slipped through), so it's a cheaper, 100%-reliable
-pre-filter rather than another prompt instruction to hope the model follows every time. A listing with no
-CPU model or chassis generation stated anywhere just passes through unaffected, for the LLM to judge on
-title/form-factor text as usual.
+**CPU keep/drop policy.** Before anything reaches the LLM, `ebay.py`'s `_too_old()` deterministically
+rejects CPUs not worth listing for homelab use, plus an HP EliteDesk/ProDesk "G1"–"G3" chassis suffix (HP
+encodes chassis generation right in the model name, predates DDR4 regardless of what CPU ended up in one).
+The policy (`_intel_policy`) is mostly about hyperthreading/SMT — what actually matters for homelab
+VM/container workloads — but with two deliberate departures from pure hyperthreading fact, not a blanket
+"8th-gen-i7-or-newer" rule:
+
+| Generation | i3 | i5 | i7 | i9 |
+|---|---|---|---|---|
+| 7th (Kaby Lake) | keep | drop (no HT) | keep | — |
+| 8th (Coffee Lake) | drop | drop | keep | — |
+| 9th (Coffee Lake Refresh) | drop | drop | **keep, flagged "no hyperthreading"** | keep |
+| 10th–14th (Comet Lake–Raptor Lake) | **drop (policy)** | keep | keep | keep |
+| Core Ultra Series 1 (Meteor Lake) | — | keep | keep | keep |
+| Core Ultra Series 2 (Arrow/Lunar Lake) | — | drop | drop | drop |
+
+The two bolded departures are deliberate: 9th-gen i7 lacks hyperthreading but is common/cheap enough to
+list anyway with a caveat rather than exclude outright — the note ends up in the card's summary text, e.g.
+"no hyperthreading (9th-gen i7)". i3 is excluded from 10th gen onward even though it does have hyperthreading
+there — core counts stay low-end regardless, so it's excluded on policy, not on the HT fact. Everything else
+in the table is the real hyperthreading answer for that generation+family. Core Ultra Series 2 is a hard
+drop on every tier, no exceptions — even an "Ultra 9" lacks hyperthreading entirely. Pre-7th-gen Intel is
+dropped outright regardless of tier. AMD Ryzen is simpler: pre-3000-series (1000/2000, Zen/Zen+) only
+Ryzen 5/7 have SMT; 3000-series (Zen 2) onward virtually every model does, including most Ryzen 3. Matches
+both numbered model text ("i5-8500") and worded generation text ("i5-7th Gen"), whichever the listing uses,
+and runs against the title and, separately, whatever CPU text a chosen variation's own aspect data provides
+— cheaper and more reliable than a prompt instruction to hope the LLM catches every time (the same table is
+also embedded directly in the LLM prompt, as a second line of defense for text this regex-based check can't
+parse). Two real failures drove building this: a 2013 ProDesk 600 G1 slipped through on generation alone,
+and a listing titled "i7" whose only real selectable CPU turned out to be an i5-7th-gen (which, per the
+table, wouldn't have qualified anyway) slipped through because the picker below was trusting the shared
+title over the variation's own data. A listing with no CPU model or chassis generation stated anywhere just
+passes through unaffected, for the LLM to judge on title/form-factor text as usual.
 
 **Multi-variation listings.** "Choose your configuration" listings (one listing, several selectable
 CPU/RAM/storage combos behind one or more dropdowns — common among bulk refurb sellers, and the reason
 the search API's displayed price is often just the cheapest option) get one extra API call per unique
 listing to fetch every variation's own price and aspects. `ebay.py` then deterministically picks the
-configuration worth reporting — best CPU tier available, RAM as close to 32GB as possible (exact match
+configuration worth reporting — best CPU tier *among variations that state their own CPU and pass the
+policy table above* (if the best any of them offers fails that table, the whole listing is rejected rather
+than falling back to whatever the shared title claims), RAM as close to 32GB as possible (exact match
 preferred), cheapest storage as the tiebreak since storage matters least — and uses *that* SKU's own real
-price, not the cheapest-teaser one. Aspect names/values vary a lot by seller and marketplace language
+price, not the cheapest-teaser one, with its own "no hyperthreading" flag if it's a 9th-gen i7. A listing
+whose variations never state CPU at all (only RAM/storage vary; the title carries the sole CPU claim) still
+falls back to letting the title judge it, same as a single-configuration listing — there's nothing more
+specific to trust instead in that case. Aspect names/values vary a lot by seller and marketplace language
 (English "Memory/RAM" vs French "RAM :" vs a single combined "Configuration" aspect), so the matching in
 `_variation_specs`/`_pick_best_variation` is intentionally loose rather than expecting one exact format.
+Some sellers run storage as a third, fully independent selector (separate CPU/RAM/Storage dropdowns) that
+eBay's own variation-group data doesn't always expose per storage size — only CPU×RAM show up as priced
+SKUs, with storage left as `null`/unselected in the API response even though the real listing page has a
+size dropdown. Rather than silently reporting a price that may not actually include storage, the card's
+summary says so explicitly ("price may not include storage - size wasn't resolved for this configuration,
+check listing") whenever this happens, instead of the normal "price shown is for this exact configuration."
+
+**Non-working listings.** `_not_working()` drops anything whose eBay `condition` field says "For parts or
+not working" (eBay's own standardized condition string) — broken hardware isn't a deal regardless of specs
+or price, so this is checked before anything else, alongside the age/CPU gate.
 
 **Classification.** Results are stored the same way as feed items (`kind = 'deal'`) but classified with a
 *different* system prompt (`classifier.py` `_DEALS_SYSTEM_PROMPT`) that judges the actual hardware match —
-genuine mini/micro/tiny form factor, Intel i7/i9 8th-gen-or-newer (or AMD Ryzen 5/7/9 3000-series-or-newer;
-RAM upgradability isn't a hard filter even when a listing doesn't state 32GB installed, since these
-platforms all support it by default). The same prompt extracts CPU (with core/thread count filled in from
-the model's known specs), RAM, and storage from the listing text, shown as spec badges on each card —
-eBay's search API doesn't return structured item aspects for non-variation listings, so this relies on the
-seller having put specs in the title, which is near-universal for this category.
+genuine mini/micro/tiny form factor, and the same CPU policy table as above (RAM upgradability isn't a hard
+filter even when a listing doesn't state 32GB installed, since these platforms all support it by default).
+The same prompt extracts CPU (with core/thread count filled in from the model's known specs), RAM, and
+storage from the listing text, shown as spec badges on each card — eBay's search API doesn't return
+structured item aspects for non-variation listings, so this relies on the seller having put specs in the
+title, which is near-universal for this category.
 
 **Availability re-checking.** A listing that gets kept stays in the DB indefinitely by default — nothing
 re-validates it, so once a deal sells or gets taken down it would otherwise just sit there forever. Each
