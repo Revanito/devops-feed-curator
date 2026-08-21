@@ -1,0 +1,16 @@
+# eBay searches polled for the "Homelab Deals" column. Add/remove freely - no code changes needed.
+# Each entry is a keyword search run against every marketplace in EBAY_MARKETPLACES (config.py),
+# filtered server-side to price <= DEAL_MAX_PRICE_EUR. The LLM classifier then checks the actual
+# CPU generation / form factor against the homelab criteria (see classifier.py _DEALS_SYSTEM_PROMPT)
+# since eBay's own filters can't express "i7 8th gen or newer".
+searches:
+  - name: Lenovo ThinkCentre Tiny
+    keywords: "lenovo thinkcentre tiny i7"
+  - name: HP EliteDesk Mini
+    keywords: "hp elitedesk mini i7"
+  - name: HP ProDesk Mini
+    keywords: "hp prodesk mini i7"
+  - name: Intel NUC
+    keywords: "intel nuc i7"
+  - name: Dell OptiPlex Micro
+    keywords: "dell optiplex micro i7"

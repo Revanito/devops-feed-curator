@@ -13,8 +13,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import db
+import ebay
 import feeds
-from classifier import classify_batch_isolating_failures
+from classifier import classify_batch_isolating_failures, classify_deals_batch_isolating_failures
 from config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -39,18 +40,28 @@ async def poll_and_classify() -> None:
         inserted = db.insert_new_items(items)
         log.info("fetched %d items, %d new", len(items), inserted)
 
-        while True:
-            batch = db.get_unclassified(settings.classify_batch_size)
-            if not batch:
-                break
-            results = await classify_batch_isolating_failures(batch)
-            if not results:
-                log.warning("classification failed for a batch of %d, will retry next poll", len(batch))
-                break
-            db.apply_classifications(results)
-            quarantined = len(batch) - len(results)
-            log.info("classified %d items%s", len(results),
-                      f" ({quarantined} quarantined as unclassifiable)" if quarantined else "")
+        log.info("polling eBay deals...")
+        deal_items = await asyncio.to_thread(ebay.fetch_all)
+        deal_inserted = db.insert_new_items(deal_items)
+        log.info("fetched %d deal listings, %d new", len(deal_items), deal_inserted)
+
+        await _classify_pending("news", classify_batch_isolating_failures)
+        await _classify_pending("deal", classify_deals_batch_isolating_failures)
+
+
+async def _classify_pending(kind: str, classify_fn) -> None:
+    while True:
+        batch = db.get_unclassified(settings.classify_batch_size, kind=kind)
+        if not batch:
+            break
+        results = await classify_fn(batch)
+        if not results:
+            log.warning("classification failed for a %s batch of %d, will retry next poll", kind, len(batch))
+            break
+        db.apply_classifications(results)
+        quarantined = len(batch) - len(results)
+        log.info("classified %d %s items%s", len(results), kind,
+                  f" ({quarantined} quarantined as unclassifiable)" if quarantined else "")
 
 
 @asynccontextmanager
@@ -103,7 +114,8 @@ def _refresh_available() -> bool:
 
 @app.get("/")
 def index(request: Request):
-    items = db.get_curated(limit=300)
+    items = db.get_curated(limit=300, kind="news")
+    deal_items = db.get_curated(limit=60, kind="deal")
     stats = db.counts()
     reddit_items, blog_items, homelab_items = _split_columns(items)
     must_read_items = [item for item in items if item["critical"] and _is_recent(item, days=7)][:8]
@@ -114,6 +126,7 @@ def index(request: Request):
         "must_read_items": must_read_items, "cve_items": cve_items,
         "all_tags": all_tags, "css_version": _css_version, "favicon_version": _favicon_version,
         "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
+        "deal_items": deal_items,
     })
 
 

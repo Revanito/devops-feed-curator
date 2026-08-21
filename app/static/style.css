@@ -10,6 +10,7 @@
   --critical-bg: #241615;
   --cve: #e8a34e;
   --cve-bg: #241d12;
+  --deal: #5e9ec2;
 }
 
 * { box-sizing: border-box; }
@@ -172,7 +173,7 @@ main.columns {
   margin: 0 auto;
   padding: 1.25rem;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1.25rem;
   align-items: start;
 }
@@ -194,6 +195,12 @@ main.columns {
   top: 3.6rem;
   background: var(--bg);
   padding: 0.25rem 0;
+}
+
+@media (max-width: 1280px) {
+  main.columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 980px) {
@@ -244,6 +251,34 @@ main.columns {
   padding: 0.05rem 0.4rem;
 }
 
+.card.deal { border-color: var(--deal); }
+
+.card.deal .title:hover { color: var(--deal); }
+
+.price {
+  background: #142330;
+  color: var(--deal);
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0.05rem 0.4rem;
+}
+
+.specs {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.spec {
+  background: #16212b;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.78rem;
+}
+
 .summary {
   margin: 0.5rem 0 0;
   color: var(--muted);
@@ -252,3 +287,21 @@ main.columns {
 }
 
 .empty { color: var(--muted); }
+
+.hidden-card { display: none !important; }
+
+.see-more {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  align-self: stretch;
+}
+
+.see-more:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}

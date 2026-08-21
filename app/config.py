@@ -19,5 +19,17 @@ class Settings(BaseSettings):
     # Optional: set to enable POST /refresh (send as X-Admin-Token header). Leave blank to disable it entirely.
     admin_token: str = ""
 
+    # eBay Browse API (developer.ebay.com -> create app -> production keys). Leave blank to disable
+    # the Homelab Deals column entirely - it just stays empty rather than erroring.
+    ebay_client_id: str = ""
+    ebay_client_secret: str = ""
+    ebay_marketplaces: str = "EBAY_FR,EBAY_DE,EBAY_GB"
+    deal_max_price_eur: int = 500
+    deals_file: str = "deals.yaml"
+
+    # Baseline GBP->EUR rate, not live-fetched - update this occasionally by hand if it drifts far
+    # from reality. Good enough for "is this roughly under budget", not for actual accounting.
+    gbp_to_eur_rate: float = 1.17
+
 
 settings = Settings()

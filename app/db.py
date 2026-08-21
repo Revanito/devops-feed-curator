@@ -16,7 +16,14 @@ CREATE TABLE IF NOT EXISTS items (
     classified INTEGER NOT NULL DEFAULT 0,
     keep INTEGER,
     tag TEXT,
-    critical INTEGER NOT NULL DEFAULT 0
+    critical INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'news',
+    price REAL,
+    shipping REAL,
+    currency TEXT,
+    cpu TEXT,
+    ram TEXT,
+    storage TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_items_keep_published ON items (keep, published);
 """
@@ -26,6 +33,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(items)")}
     if "critical" not in columns:
         conn.execute("ALTER TABLE items ADD COLUMN critical INTEGER NOT NULL DEFAULT 0")
+    if "kind" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN kind TEXT NOT NULL DEFAULT 'news'")
+    if "price" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN price REAL")
+    if "shipping" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN shipping REAL")
+    if "currency" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN currency TEXT")
+    if "cpu" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN cpu TEXT")
+    if "ram" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN ram TEXT")
+    if "storage" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN storage TEXT")
 
     # One-time backfill: items ingested before feeds.py stripped HTML from summaries can have
     # raw/mid-tag-truncated markup baked into this column - which was making 1min.ai reject the
@@ -62,38 +83,47 @@ def insert_new_items(items: list[dict]) -> int:
     with get_conn() as conn:
         for item in items:
             cur = conn.execute(
-                """INSERT OR IGNORE INTO items (id, source, title, link, summary, published, seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT OR IGNORE INTO items (id, source, title, link, summary, published, seen_at, kind, price, shipping, currency)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (item["id"], item["source"], item["title"], item["link"],
-                 item.get("summary", ""), item.get("published", ""), now),
+                 item.get("summary", ""), item.get("published", ""), now,
+                 item.get("kind", "news"), item.get("price"), item.get("shipping"), item.get("currency", "")),
             )
             inserted += cur.rowcount
     return inserted
 
 
-def get_unclassified(limit: int) -> list[sqlite3.Row]:
+def get_unclassified(limit: int, kind: str = "news") -> list[sqlite3.Row]:
     with get_conn() as conn:
         return conn.execute(
-            "SELECT id, title, summary, source FROM items WHERE classified = 0 LIMIT ?",
-            (limit,),
+            "SELECT id, title, summary, source, price, shipping, currency FROM items WHERE classified = 0 AND kind = ? LIMIT ?",
+            (kind, limit),
         ).fetchall()
 
 
-def apply_classifications(results: dict[str, tuple[bool, str, bool]]) -> None:
+def apply_classifications(results: dict[str, dict]) -> None:
     with get_conn() as conn:
-        for item_id, (keep, tag, critical) in results.items():
+        for item_id, r in results.items():
             conn.execute(
-                "UPDATE items SET classified = 1, keep = ?, tag = ?, critical = ? WHERE id = ?",
-                (1 if keep else 0, tag, 1 if critical else 0, item_id),
+                """UPDATE items SET classified = 1, keep = ?, tag = ?, critical = ?,
+                       cpu = ?, ram = ?, storage = ? WHERE id = ?""",
+                (1 if r["keep"] else 0, r["tag"], 1 if r["critical"] else 0,
+                 r.get("cpu"), r.get("ram"), r.get("storage"), item_id),
             )
 
 
-def get_curated(limit: int = 100) -> list[sqlite3.Row]:
+def get_curated(limit: int = 100, kind: str | None = None) -> list[sqlite3.Row]:
     with get_conn() as conn:
+        if kind is None:
+            return conn.execute(
+                """SELECT * FROM items WHERE classified = 1 AND keep = 1
+                   ORDER BY published DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
         return conn.execute(
-            """SELECT * FROM items WHERE classified = 1 AND keep = 1
+            """SELECT * FROM items WHERE classified = 1 AND keep = 1 AND kind = ?
                ORDER BY published DESC LIMIT ?""",
-            (limit,),
+            (kind, limit),
         ).fetchall()
 
 

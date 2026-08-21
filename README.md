@@ -26,9 +26,37 @@ items and admin-relevant IT world news.
   which single item is the problem. A lone item is retried once more before being quarantined (marked
   classified, dropped, tagged `unclassifiable`) — this avoids permanently dropping a perfectly fine item
   that just happened to hit a transient API blip while alone in a bisected batch of one.
-- The webpage at `/` shows the kept items in three columns — Reddit, Blogs & DevOps News, and Homelab
-  (homelab-tagged items win that column regardless of source) — newest first within each. Admin-relevant
-  IT world news lands in Blogs & DevOps News, tagged accordingly (e.g. `microsoft`, `outage`, `security`).
+- The webpage at `/` shows the kept items in four columns — Reddit, Blogs & DevOps News, Homelab
+  (homelab-tagged items win that column regardless of source), and Homelab Deals — newest first within
+  each. Admin-relevant IT world news lands in Blogs & DevOps News, tagged accordingly (e.g. `microsoft`,
+  `outage`, `security`).
+- **Homelab Deals** is a separate pipeline from the RSS/news one: `app/ebay.py` polls the eBay Browse API
+  (searches defined in `app/deals.yaml` - ThinkCentre Tiny, EliteDesk Mini, ProDesk Mini, NUC, OptiPlex
+  Micro) across the marketplaces in `EBAY_MARKETPLACES` (default `EBAY_FR,EBAY_DE,EBAY_GB` - Germany and
+  the UK both have far more listings for this category than France alone), pre-filtered server-side to
+  `DEAL_MAX_PRICE_EUR` (default €500) then re-checked in `ebay.py` against price **+ shipping**, converted
+  to EUR, since the search API's own filter only looks at the item price and can't filter across
+  currencies. GB listings are priced in GBP; `GBP_TO_EUR_RATE` (default 1.17, not live-fetched - update it
+  by hand occasionally) converts them so the ceiling and the price badge both mean the same thing
+  regardless of which marketplace a listing came from. The price badge shown on each card is always the
+  EUR-equivalent item + shipping total; the original native amount stays visible in the card's summary
+  text for transparency. `EBAY_GB` listings are also flagged in that text as cross-border (post-Brexit) -
+  the buyer may owe import VAT/duty on delivery that eBay's search API has no reliable way to quote up
+  front, so that's a warning label rather than a computed number.
+  Results are stored the same way as feed items (`kind = 'deal'`) but classified with a *different* system
+  prompt (`classifier.py` `_DEALS_SYSTEM_PROMPT`) that judges the actual hardware match - genuine
+  mini/micro/tiny form factor, Intel i7/i9 8th-gen-or-newer (or AMD Ryzen 5/7/9 3000-series-or-newer) -
+  since these platforms are DDR4 by default from 2018 onward, RAM upgradability isn't used as a hard filter
+  even when a listing doesn't state 32GB installed. The same prompt also extracts CPU (with core/thread
+  count filled in from the model's known specs), RAM, and storage from the listing title, shown as spec
+  badges on each card - eBay's search API doesn't return structured item aspects, so this relies on the
+  seller having put specs in the title, which is near-universal for this listing category. For "choose
+  your configuration" listings (one listing, several selectable RAM/storage combos behind a dropdown -
+  common among bulk refurb sellers), `ebay.py` makes one extra API call per unique listing to fetch every
+  variation's real price and options, so the classifier can report an accurate range (e.g. "8-32GB")
+  instead of just whatever the cheapest configuration happens to be. Leave
+  `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET` blank in `.env` to disable this column entirely (get free keys at
+  [developer.ebay.com](https://developer.ebay.com) -> create an app -> production keys).
 - Anything flagged `critical` also shows in a **Must Read** banner above the three columns (capped at 8,
   newest first), so a major incident doesn't get lost in the normal flow. Items older than 7 days drop
   out of Must Read automatically (they stay in their normal column, just not the banner).
@@ -57,14 +85,19 @@ steps or data loss.
 
 ## Tuning the filter
 
-The keep/drop rules live in `app/classifier.py` (`_SYSTEM_PROMPT`). Edit that prompt directly if the
-filter is too strict or too loose, then rebuild (`docker compose up -d --build`) — no code changes
-needed elsewhere.
+The keep/drop rules live in `app/classifier.py` (`_SYSTEM_PROMPT` for news, `_DEALS_SYSTEM_PROMPT` for the
+Homelab Deals column). Edit either prompt directly if the filter is too strict or too loose, then rebuild
+(`docker compose up -d --build`) — no code changes needed elsewhere.
 
 ## Adding/removing feeds
 
 Edit `app/sources.yaml`. Any standard RSS/Atom feed URL works. Reddit subreddits: append `/.rss` to the
 subreddit URL. No restart required — the file is volume-mounted and read fresh on each poll.
+
+## Adding/removing eBay deal searches
+
+Edit `app/deals.yaml` — each entry is just a `name` and an eBay `keywords` search string, run against every
+marketplace in `EBAY_MARKETPLACES`. Volume-mounted like `sources.yaml`, so no rebuild needed.
 
 ## Forcing a refresh, bypassing the cooldown
 
