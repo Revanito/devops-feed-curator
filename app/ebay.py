@@ -14,6 +14,7 @@ log = logging.getLogger("ebay")
 _TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 _SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 _ITEM_BY_LEGACY_ID_URL = "https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id"
+_ITEMS_BY_GROUP_URL = "https://api.ebay.com/buy/browse/v1/item/get_items_by_item_group"
 _TIMEOUT = httpx.Timeout(30.0)
 
 _LEGACY_ITEM_ID_RE = re.compile(r"/itm/(\d+)")
@@ -399,21 +400,33 @@ def check_availability(rows: list) -> tuple[list[str], list[str]]:
                 checked.append(row["id"])
                 continue
 
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "X-EBAY-C-MARKETPLACE-ID": _marketplace_from_source(row["source"]),
+            }
             try:
-                resp = client.get(
-                    _ITEM_BY_LEGACY_ID_URL,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "X-EBAY-C-MARKETPLACE-ID": _marketplace_from_source(row["source"]),
-                    },
-                    params={"legacy_item_id": m.group(1)},
-                )
+                resp = client.get(_ITEM_BY_LEGACY_ID_URL, headers=headers, params={"legacy_item_id": m.group(1)})
                 if resp.status_code == 404:
                     gone.append(row["id"])
                 elif resp.status_code == 200:
                     availabilities = resp.json().get("estimatedAvailabilities", [])
                     if any(a.get("estimatedAvailabilityStatus") == "OUT_OF_STOCK" for a in availabilities):
                         gone.append(row["id"])
+                elif resp.status_code == 400 and "get_items_by_item_group" in resp.text:
+                    # This id turned out to be a multi-variation group id, not a single item's
+                    # legacy id (eBay's error message says as much and names the right endpoint) -
+                    # a listing we resolved to one specific configuration at insert time. Falling
+                    # back to that endpoint: any variation still listed means the group is still
+                    # live, so treat that as available rather than a hard "gone".
+                    group_resp = client.get(_ITEMS_BY_GROUP_URL, headers=headers, params={"item_group_id": m.group(1)})
+                    if group_resp.status_code == 404:
+                        gone.append(row["id"])
+                    elif group_resp.status_code == 200:
+                        if not group_resp.json().get("items"):
+                            gone.append(row["id"])
+                    else:
+                        log.warning("eBay group availability check failed for %s (%s): %s",
+                                    row["id"], group_resp.status_code, group_resp.text[:200])
                 else:
                     log.warning("eBay availability check failed for %s (%s): %s",
                                 row["id"], resp.status_code, resp.text[:200])

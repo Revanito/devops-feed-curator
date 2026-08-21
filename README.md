@@ -104,10 +104,13 @@ seller having put specs in the title, which is near-universal for this category.
 re-validates it, so once a deal sells or gets taken down it would otherwise just sit there forever. Each
 poll, `DEAL_RECHECK_BATCH_SIZE` (default 50) already-kept listings — the ones never checked or checked
 longest ago — get looked up again via eBay's `get_item_by_legacy_id`; a 404 (listing ended) or an
-`OUT_OF_STOCK` availability status gets it deleted outright. This is a rolling sweep rather than
-re-checking everything every poll, so the per-poll cost stays flat no matter how many listings have
-accumulated — with the default batch size, the whole set cycles through roughly every couple of hours at
-a typical volume of some tens to ~150 kept listings.
+`OUT_OF_STOCK` availability status gets it deleted outright. For a listing that was originally a
+multi-variation "choose your configuration" one, that id turns out to belong to the *group*, not a single
+item, and eBay's API rejects it with a 400 pointing at `get_items_by_item_group` instead — `ebay.py` falls
+back to that endpoint automatically in that case, treating any remaining variation as still available.
+This is a rolling sweep rather than re-checking everything every poll, so the per-poll cost stays flat no
+matter how many listings have accumulated — with the default batch size, the whole set cycles through
+roughly every couple of hours at a typical volume of some tens to ~150 kept listings.
 
 ### Refreshing
 
