@@ -68,26 +68,23 @@ Prefer, but do not require, listings that explicitly state 32GB RAM already inst
 platforms all support DDR4 SO-DIMM upgrades to 32GB regardless, so a lower or unstated RAM amount alone is
 NOT a reason to drop an otherwise-matching listing.
 
-Some listings are eBay "choose your configuration" listings: the title/price shown is just the cheapest
-option, and the item text may include a line like "Configurations: RAM : 8 Go, Disque dur : 128 Go, ... |
-RAM : 16 Go, Disque dur : 256 Go, ... | ..." (French/German labels - RAM/Arbeitsspeicher, Disque dur/
-Festplatte = storage) listing every selectable combination, sometimes with "price range X-Y EUR". Treat
-that the same as title text for extraction purposes.
+Some listings are eBay "choose your configuration" listings with several selectable CPU/RAM/storage
+combinations. For those, the item text already includes a line like "Selected configuration: i7-8700T
+(6C/12T), 32GB RAM, 120GB SSD (price shown is for this exact configuration)" - a specific configuration
+already picked out for you (best CPU available, ~32GB RAM, cheapest storage), with the price given being
+that exact configuration's real price, not the listing's cheapest teaser price. Judge the listing using
+that selected configuration, and copy its cpu/ram/storage straight into your answer - trust it over the
+title if they conflict, since the title often just describes the cheapest option.
 
-For every kept item, also extract from the title and condition/configuration text:
+For every kept item, extract from the item text (preferring a "Selected configuration" line when present,
+else the title/condition text):
 - "cpu": the exact CPU model as written (e.g. "i7-8700T"), followed by its core/thread count in parentheses
-  if you know it from general knowledge of that model (e.g. "i7-8700T (6C/12T)"). If no CPU model is
-  written anywhere in the text, use "".
-- "ram": RAM size(s) as stated. A single listing: "16GB". A configurable listing with several distinct RAM
-  values across its configurations: a compact range or slash list, e.g. "8-32GB" or "8GB/16GB/32GB". ""
-  if genuinely not stated anywhere.
-- "storage": storage size(s) and type as stated, same range/slash-list rule as ram, e.g. "256GB SSD" or
-  "128GB-1TB SSD". "" if not stated.
-Do not invent ram/storage numbers that are not written in the text anywhere - only cpu core/thread counts
+  if you know it from general knowledge of that model (e.g. "i7-8700T (6C/12T)") and it isn't already
+  present. If no CPU model is written anywhere in the text, use "".
+- "ram": RAM size as stated, e.g. "16GB". "" if genuinely not stated anywhere.
+- "storage": storage size and type as stated, e.g. "256GB SSD". "" if not stated.
+Do not invent a ram/storage number that is not written in the text anywhere - only cpu core/thread counts
 may be filled in from your own knowledge of that CPU model, since those are fixed facts about a named part.
-If a configurable listing's price range extends noticeably above the price shown for this item, mention
-that by keeping storage/ram as the full range rather than just the cheapest configuration's numbers - the
-reader needs to know what's actually achievable, not just what the cheapest option is.
 
 Given a numbered list of items (title, condition, price), respond with ONLY a JSON array, one object per
 item, in the same order, each shaped exactly like:

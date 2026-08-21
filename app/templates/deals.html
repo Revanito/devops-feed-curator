@@ -3,18 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Homelab Deals</title>
+<title>{{ page_title }}</title>
 <link rel="icon" type="image/png" href="/static/favicon.png?v={{ favicon_version }}">
 <link rel="stylesheet" href="/static/style.css?v={{ css_version }}">
 </head>
 <body>
 {% import '_macros.html' as m %}
 <header>
-  <h1>Homelab Deals</h1>
-  <nav class="page-nav">
-    <a class="page-nav-link" href="/">News</a>
-    <a class="page-nav-link active" href="/deals">Homelab Deals</a>
-  </nav>
+  <div class="header-top">
+    <h1>{{ page_title }}</h1>
+    {{ m.nav(active_nav, beyond_label) }}
+  </div>
   <div class="stats">
     <span>{{ total }} listings</span>
     <form action="/refresh" method="post">
@@ -25,7 +24,7 @@
   </div>
 </header>
 
-<main class="columns deals-page">
+<main class="columns">
   {{ m.column('Cheapest', low_items, variant='deal', subtitle=low_range) }}
   {{ m.column('Mid-Range', mid_items, variant='deal', subtitle=mid_range) }}
   {{ m.column('Priciest', high_items, variant='deal', subtitle=high_range) }}

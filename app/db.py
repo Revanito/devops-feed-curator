@@ -127,12 +127,21 @@ def get_curated(limit: int = 100, kind: str | None = None) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def get_curated_deals(limit: int = 300) -> list[sqlite3.Row]:
+def get_curated_deals(limit: int = 300, min_total: float | None = None, max_total: float | None = None) -> list[sqlite3.Row]:
     with get_conn() as conn:
+        clauses = ["classified = 1", "keep = 1", "kind = 'deal'"]
+        params: list = []
+        if min_total is not None:
+            clauses.append("(price + COALESCE(shipping, 0)) > ?")
+            params.append(min_total)
+        if max_total is not None:
+            clauses.append("(price + COALESCE(shipping, 0)) <= ?")
+            params.append(max_total)
+        params.append(limit)
         return conn.execute(
-            """SELECT * FROM items WHERE classified = 1 AND keep = 1 AND kind = 'deal'
-               ORDER BY (price + COALESCE(shipping, 0)) ASC LIMIT ?""",
-            (limit,),
+            f"""SELECT * FROM items WHERE {' AND '.join(clauses)}
+                ORDER BY (price + COALESCE(shipping, 0)) ASC LIMIT ?""",
+            params,
         ).fetchall()
 
 

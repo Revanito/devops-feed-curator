@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import logging
+import re
 import time
 
 import httpx
@@ -69,49 +70,137 @@ def _get_token(client: httpx.Client) -> str | None:
     return _token
 
 
-def _group_configs(client: httpx.Client, token: str, group_href: str, cache: dict) -> str:
+# Variation aspects come back under all sorts of names depending on seller/marketplace language -
+# match loosely on the aspect *name* rather than requiring an exact string.
+_RAM_NAME_RE = re.compile(r"ram|memory|m[ée]moire|arbeitsspeicher", re.IGNORECASE)
+_STORAGE_NAME_RE = re.compile(r"storage|ssd|hdd|disque|drive|festplatte|speicherkapazit", re.IGNORECASE)
+_CPU_NAME_RE = re.compile(r"cpu|processor|prozessor", re.IGNORECASE)
+_CPU_TIER_RE = re.compile(r"\bi[\s-]?([3579])\b", re.IGNORECASE)
+_RYZEN_TIER_RE = re.compile(r"ryzen\D{0,4}([3579])", re.IGNORECASE)
+# A size with a unit ("32GB", "32 Go", "1TB") or, within an aspect already identified as RAM/
+# storage by name, a bare number ("32") - covers every variant the user asked for.
+_SIZE_WITH_UNIT_RE = re.compile(r"(\d+)\s*(gb|go|tb|to)\b", re.IGNORECASE)
+_BARE_NUMBER_RE = re.compile(r"(\d+)")
+
+
+def _cpu_tier(text: str) -> int:
+    """Higher is better. 0 means no recognizable Intel Core iX / Ryzen tier found."""
+    text = text or ""
+    m = _CPU_TIER_RE.search(text)
+    if m:
+        return int(m.group(1))
+    m = _RYZEN_TIER_RE.search(text)
+    if m:
+        return int(m.group(1))
+    return 0
+
+
+def _parse_size_gb(text: str) -> tuple[str, int] | tuple[None, None]:
+    """(display string, size in GB) for comparison, e.g. "1TB" -> ("1TB", 1024)."""
+    if not text:
+        return None, None
+    m = _SIZE_WITH_UNIT_RE.search(text)
+    if m:
+        n, unit = int(m.group(1)), m.group(2).lower()
+        return text.strip(), (n * 1024 if unit in ("tb", "to") else n)
+    m = _BARE_NUMBER_RE.search(text)
+    if m:
+        n = int(m.group(1))
+        return f"{n}GB", n
+    return None, None
+
+
+def _variation_specs(v: dict) -> dict:
+    cpu = ram = storage = None
+    ram_gb = storage_gb = None
+    aspects = v.get("localizedAspects", [])
+
+    for aspect in aspects:
+        name, value = aspect.get("name", ""), aspect.get("value", "")
+        if not value:
+            continue
+        if _RAM_NAME_RE.search(name):
+            ram, ram_gb = _parse_size_gb(value)
+        elif _STORAGE_NAME_RE.search(name):
+            storage, storage_gb = _parse_size_gb(value)
+        elif _CPU_NAME_RE.search(name):
+            cpu = value
+
+    # Fallback for listings that bundle everything into one combined aspect instead of
+    # separate CPU/RAM/storage ones (e.g. "Configuration: RAM : 32 Go, Disque dur : 256 Go, ...").
+    # These rarely name the CPU in the aspect itself (it's usually only in the title, picked up
+    # via cpu_tier below) - leave cpu unset here rather than stuffing the raw aspect text into it.
+    if cpu is None and ram is None and storage is None:
+        combined = " ".join(a.get("value", "") for a in aspects)
+        m = re.search(r"ram\D{0,4}(\d+)\s*(gb|go)\b", combined, re.IGNORECASE)
+        if m:
+            ram, ram_gb = f"{m.group(1)}{m.group(2).upper()}", int(m.group(1))
+        m = re.search(r"(?:disque dur|storage|ssd|hdd)\D{0,4}(\d+)\s*(gb|go|tb|to)\b", combined, re.IGNORECASE)
+        if m:
+            n, unit = int(m.group(1)), m.group(2).lower()
+            storage, storage_gb = f"{n}{m.group(2).upper()}", (n * 1024 if unit in ("tb", "to") else n)
+
+    price = v.get("price", {})
+    return {
+        "cpu": cpu, "cpu_tier": _cpu_tier((cpu or "") + " " + v.get("title", "")),
+        "ram": ram, "ram_gb": ram_gb,
+        "storage": storage, "storage_gb": storage_gb,
+        "price": float(price["value"]) if price.get("value") else None,
+        "currency": price.get("currency"),
+        "shipping": _shipping_cost(v),
+    }
+
+
+def _pick_best_variation(variations: list[dict]) -> dict | None:
+    """Among a listing's selectable configurations, deterministically pick the one worth
+    reporting: best available CPU tier, then RAM as close to 32GB as possible (exact match
+    preferred), then cheapest storage as the tiebreak since storage matters least. Returns that
+    variation's own price - not the listing's cheapest-teaser price, which is often a lesser
+    config than what anyone actually wants."""
+    candidates = [v for v in variations if v["price"] is not None]
+    if not candidates:
+        return None
+
+    best_cpu_tier = max(v["cpu_tier"] for v in candidates)
+    pool = [v for v in candidates if v["cpu_tier"] == best_cpu_tier]
+
+    exact_32 = [v for v in pool if v["ram_gb"] == 32]
+    if exact_32:
+        pool = exact_32
+    else:
+        ram_values = [v["ram_gb"] for v in pool if v["ram_gb"] is not None]
+        if ram_values:
+            pool = [v for v in pool if v["ram_gb"] == max(ram_values)]
+
+    pool.sort(key=lambda v: (v["storage_gb"] if v["storage_gb"] is not None else float("inf"), v["price"]))
+    return pool[0]
+
+
+def _resolve_group(client: httpx.Client, token: str, group_href: str, cache: dict) -> dict | None:
     """Multi-variation ('choose your configuration') listings show one price/title in search
     results - the cheapest variation - and hide the actual RAM/storage/CPU options behind a
     dropdown the search API never returns. Fetching the item group once per unique listing gets
-    every variation's own price and aspect values, so the classifier can report real ranges
-    ("16GB/32GB") instead of guessing from a title that says nothing about it."""
+    every variation's own price and specs, so we can pick and report the specific configuration
+    that matches what's actually wanted, at its own real price."""
     if group_href in cache:
         return cache[group_href]
 
-    text = ""
+    result = None
     try:
         resp = client.get(group_href, headers={"Authorization": f"Bearer {token}"})
         if resp.status_code == 200:
-            variations = resp.json().get("items", [])
-            prices = sorted({
-                float(v["price"]["value"]) for v in variations
-                if v.get("price", {}).get("value")
-            })
-            currency = next(
-                (v["price"]["currency"] for v in variations if v.get("price", {}).get("currency")), "EUR",
-            )
-            aspect_values = []
-            for v in variations:
-                for aspect in v.get("localizedAspects", []):
-                    value = aspect.get("value", "")
-                    if value and value not in aspect_values:
-                        aspect_values.append(value)
-
-            parts = []
-            if aspect_values:
-                parts.append("Configurations: " + " | ".join(aspect_values))
-            elif len(variations) > 1:
-                parts.append(f"{len(variations)} configurations available")
-            if len(prices) > 1:
-                parts.append(f"price range {prices[0]:.0f}-{prices[-1]:.0f} {currency}")
-            text = "; ".join(parts)
+            raw_variations = resp.json().get("items", [])
+            parsed = [_variation_specs(v) for v in raw_variations]
+            chosen = _pick_best_variation(parsed)
+            if chosen:
+                result = {"chosen": chosen, "variation_count": len(raw_variations)}
         else:
             log.warning("eBay item group fetch failed (%s): %s", resp.status_code, resp.text[:300])
     except httpx.HTTPError as exc:
         log.warning("eBay item group fetch errored: %s", exc)
 
-    cache[group_href] = text
-    return text
+    cache[group_href] = result
+    return result
 
 
 def _search(client: httpx.Client, token: str, marketplace: str, keywords: str) -> list[dict]:
@@ -124,7 +213,7 @@ def _search(client: httpx.Client, token: str, marketplace: str, keywords: str) -
         },
         params={
             "q": keywords,
-            "filter": f"price:[..{settings.deal_max_price_eur}],priceCurrency:{currency},buyingOptions:{{FIXED_PRICE}}",
+            "filter": f"price:[..{settings.deal_extended_max_price_eur}],priceCurrency:{currency},buyingOptions:{{FIXED_PRICE}}",
             "sort": "newlyListed",
             "limit": "25",
         },
@@ -153,7 +242,7 @@ def fetch_all() -> list[dict]:
 
     marketplaces = [m.strip() for m in settings.ebay_marketplaces.split(",") if m.strip()]
     items = []
-    group_cache: dict[str, str] = {}
+    group_cache: dict[str, dict | None] = {}
     with httpx.Client(timeout=_TIMEOUT) as client:
         token = _get_token(client)
         if not token:
@@ -168,26 +257,45 @@ def fetch_all() -> list[dict]:
                     if not link or not price.get("value"):
                         continue
 
-                    native_currency = price.get("currency", "EUR")
-                    item_price = float(price["value"])
-                    shipping = _shipping_cost(raw)
+                    # For a multi-variation listing, resolve which specific configuration is
+                    # worth reporting (best CPU, ~32GB RAM, cheapest storage) and use *that* SKU's
+                    # own price - not the listing's cheapest-teaser price, which is often a lesser
+                    # config than what anyone actually wants and would otherwise get shown as if
+                    # it were the real price.
+                    chosen = None
+                    group_href = raw.get("itemGroupHref")
+                    if group_href:
+                        resolved = _resolve_group(client, token, group_href, group_cache)
+                        if resolved:
+                            chosen = resolved["chosen"]
+
+                    if chosen and chosen["price"] is not None:
+                        item_price = chosen["price"]
+                        native_currency = chosen["currency"] or price.get("currency", "EUR")
+                        shipping = chosen["shipping"] if chosen["shipping"] is not None else _shipping_cost(raw)
+                        cpu_hint, ram_hint, storage_hint = chosen["cpu"], chosen["ram"], chosen["storage"]
+                    else:
+                        item_price = float(price["value"])
+                        native_currency = price.get("currency", "EUR")
+                        shipping = _shipping_cost(raw)
+                        cpu_hint = ram_hint = storage_hint = None
 
                     price_eur = _to_eur(item_price, native_currency)
                     shipping_eur = _to_eur(shipping, native_currency) if shipping is not None else None
                     total_eur = price_eur + (shipping_eur or 0.0)
-                    # The search API's own price filter only looks at the item price, not
-                    # shipping, and can't filter across currencies - re-check the true EUR-
-                    # equivalent total here now that shipping and FX are both known, so a listing
-                    # that's only cheap-looking in isolation doesn't sneak in as a "deal".
-                    if total_eur > settings.deal_max_price_eur:
+                    # The search API's own price filter only looks at the cheapest variation's
+                    # item price, not shipping, and can't filter across currencies - re-check the
+                    # true EUR-equivalent total of the actual chosen configuration here. Listings
+                    # over DEAL_MAX_PRICE_EUR but still under the extended ceiling are kept (they
+                    # show up on the separate "beyond budget" page); only genuinely irrelevant,
+                    # far-over-budget listings get dropped here.
+                    if total_eur > settings.deal_extended_max_price_eur:
                         continue
 
                     summary = condition
-                    group_href = raw.get("itemGroupHref")
-                    if group_href:
-                        configs = _group_configs(client, token, group_href, group_cache)
-                        if configs:
-                            summary = f"{condition}. {configs}" if condition else configs
+                    if cpu_hint or ram_hint or storage_hint:
+                        picked = ", ".join(x for x in [cpu_hint, f"{ram_hint} RAM" if ram_hint else None, storage_hint] if x)
+                        summary = f"Selected configuration: {picked} (price shown is for this exact configuration). {summary}".strip()
                     if shipping:
                         summary = f"{summary} | +{shipping:.0f} {native_currency} shipping".strip(" |")
                     elif shipping is None:

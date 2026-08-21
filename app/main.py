@@ -126,6 +126,7 @@ def index(request: Request):
         "must_read_items": must_read_items, "cve_items": cve_items,
         "all_tags": all_tags, "css_version": _css_version, "favicon_version": _favicon_version,
         "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
+        "beyond_label": f"{settings.deal_max_price_eur}€ and beyond",
     })
 
 
@@ -140,21 +141,35 @@ def _price_range_label(items: list) -> str:
     return f"{lo:.0f}–{hi:.0f} {currency}"
 
 
-@app.get("/deals")
-def deals(request: Request):
-    items = db.get_curated_deals(limit=300)
+def _render_deals(request: Request, title: str, active: str, items: list):
     n = len(items)
     third = ceil(n / 3)
     low_items, mid_items, high_items = items[:third], items[third:2 * third], items[2 * third:]
     return templates.TemplateResponse("deals.html", {
         "request": request, "refresh_available": _refresh_available(),
         "css_version": _css_version, "favicon_version": _favicon_version,
+        "page_title": title, "active_nav": active,
+        "beyond_label": f"{settings.deal_max_price_eur}€ and beyond",
         "total": n,
         "low_items": low_items, "mid_items": mid_items, "high_items": high_items,
         "low_range": _price_range_label(low_items),
         "mid_range": _price_range_label(mid_items),
         "high_range": _price_range_label(high_items),
     })
+
+
+@app.get("/deals")
+def deals(request: Request):
+    items = db.get_curated_deals(limit=300, max_total=settings.deal_max_price_eur)
+    return _render_deals(request, "Homelab Deals", "deals", items)
+
+
+@app.get("/deals/beyond")
+def deals_beyond(request: Request):
+    items = db.get_curated_deals(
+        limit=300, min_total=settings.deal_max_price_eur, max_total=settings.deal_extended_max_price_eur,
+    )
+    return _render_deals(request, f"Homelab Deals - {settings.deal_max_price_eur}€ and beyond", "beyond", items)
 
 
 @app.post("/refresh")

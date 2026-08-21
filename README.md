@@ -29,24 +29,29 @@ items and admin-relevant IT world news.
 - The webpage at `/` shows the kept news items in three columns — Reddit, Blogs & DevOps News, and Homelab
   (homelab-tagged items win that column regardless of source) — newest first within each. Admin-relevant IT
   world news lands in Blogs & DevOps News, tagged accordingly (e.g. `microsoft`, `outage`, `security`).
-- **`/deals` is a separate page** for Homelab Deals, kept apart from the news feed so the two can be
-  checked independently. Instead of newest-first, it splits listings into three columns by price -
-  **Cheapest / Mid-Range / Priciest** - each an even third of all kept deals, sorted lowest-to-highest
-  within itself, with the actual price range for that tier shown in the column header. The two pages share
-  a small nav link in the header to switch between them.
+- **`/deals` and `/deals/beyond` are separate pages** for Homelab Deals, kept apart from the news feed so
+  they can all be checked independently - three nav buttons (News / Homelab Deals / *€X and beyond*, label
+  driven by `DEAL_MAX_PRICE_EUR`) sit top-right on every page. `/deals` shows listings up to
+  `DEAL_MAX_PRICE_EUR`; `/deals/beyond` shows the ones above that but still under
+  `DEAL_EXTENDED_MAX_PRICE_EUR`, for when the budget isn't as tight. Both pages use the same layout -
+  instead of newest-first, they split their listings into three columns by price - **Cheapest / Mid-Range /
+  Priciest** - each an even third, sorted lowest-to-highest within itself, with the actual price range for
+  that tier shown in the column header.
 - **Homelab Deals** is a separate pipeline from the RSS/news one: `app/ebay.py` polls the eBay Browse API
   (searches defined in `app/deals.yaml` - ThinkCentre Tiny, EliteDesk Mini, ProDesk Mini, NUC, OptiPlex
   Micro) across the marketplaces in `EBAY_MARKETPLACES` (default `EBAY_FR,EBAY_DE,EBAY_GB` - Germany and
   the UK both have far more listings for this category than France alone), pre-filtered server-side to
-  `DEAL_MAX_PRICE_EUR` (default €500) then re-checked in `ebay.py` against price **+ shipping**, converted
-  to EUR, since the search API's own filter only looks at the item price and can't filter across
-  currencies. GB listings are priced in GBP; `GBP_TO_EUR_RATE` (default 1.17, not live-fetched - update it
-  by hand occasionally) converts them so the ceiling and the price badge both mean the same thing
-  regardless of which marketplace a listing came from. The price badge shown on each card is always the
-  EUR-equivalent item + shipping total; the original native amount stays visible in the card's summary
-  text for transparency. `EBAY_GB` listings are also flagged in that text as cross-border (post-Brexit) -
-  the buyer may owe import VAT/duty on delivery that eBay's search API has no reliable way to quote up
-  front, so that's a warning label rather than a computed number.
+  `DEAL_EXTENDED_MAX_PRICE_EUR` (default €1500 - the wider of the two ceilings, so the API doesn't exclude
+  "beyond budget" listings before we even see them) then re-checked in `ebay.py` against price **+
+  shipping**, converted to EUR, since the search API's own filter only looks at the item price and can't
+  filter across currencies; which of the two pages a listing lands on is decided purely by that final total
+  against `DEAL_MAX_PRICE_EUR`. GB listings are priced in GBP; `GBP_TO_EUR_RATE` (default 1.17, not
+  live-fetched - update it by hand occasionally) converts them so both ceilings and the price badge all mean
+  the same thing regardless of which marketplace a listing came from. The price badge shown on each card is
+  always the EUR-equivalent item + shipping total; the original native amount stays visible in the card's
+  summary text for transparency. `EBAY_GB` listings are also flagged in that text as cross-border
+  (post-Brexit) - the buyer may owe import VAT/duty on delivery that eBay's search API has no reliable way
+  to quote up front, so that's a warning label rather than a computed number.
   Results are stored the same way as feed items (`kind = 'deal'`) but classified with a *different* system
   prompt (`classifier.py` `_DEALS_SYSTEM_PROMPT`) that judges the actual hardware match - genuine
   mini/micro/tiny form factor, Intel i7/i9 8th-gen-or-newer (or AMD Ryzen 5/7/9 3000-series-or-newer) -
@@ -55,11 +60,18 @@ items and admin-relevant IT world news.
   count filled in from the model's known specs), RAM, and storage from the listing title, shown as spec
   badges on each card - eBay's search API doesn't return structured item aspects, so this relies on the
   seller having put specs in the title, which is near-universal for this listing category. For "choose
-  your configuration" listings (one listing, several selectable RAM/storage combos behind a dropdown -
-  common among bulk refurb sellers), `ebay.py` makes one extra API call per unique listing to fetch every
-  variation's real price and options, so the classifier can report an accurate range (e.g. "8-32GB")
-  instead of just whatever the cheapest configuration happens to be. Leave
-  `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET` blank in `.env` to disable this column entirely (get free keys at
+  your configuration" listings (one listing, several selectable CPU/RAM/storage combos behind one or more
+  dropdowns - common among bulk refurb sellers, and the reason the search API's displayed price is often
+  just the cheapest option, not a real one), `ebay.py` makes one extra API call per unique listing to fetch
+  every variation's own price and aspects, then deterministically picks the configuration worth reporting:
+  the best CPU tier available, RAM as close to 32GB as possible (exact match preferred), and the cheapest
+  storage option as the tiebreak since storage matters least. That chosen SKU's own real price is what gets
+  shown and checked against the price ceiling - not the listing's cheapest teaser price, which is often a
+  lesser config than anyone actually wants. Aspect names/values vary a lot by seller and marketplace
+  language (English "Memory/RAM" vs French "RAM :" vs a single combined "Configuration" aspect), so the
+  matching in `_variation_specs`/`_pick_best_variation` is intentionally loose rather than expecting one
+  exact format. Leave `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET` blank in `.env` to disable this column entirely
+  (get free keys at
   [developer.ebay.com](https://developer.ebay.com) -> create an app -> production keys).
 - Anything flagged `critical` also shows in a **Must Read** banner above the three columns (capped at 8,
   newest first), so a major incident doesn't get lost in the normal flow. Items older than 7 days drop
@@ -102,6 +114,19 @@ subreddit URL. No restart required — the file is volume-mounted and read fresh
 
 Edit `app/deals.yaml` — each entry is just a `name` and an eBay `keywords` search string, run against every
 marketplace in `EBAY_MARKETPLACES`. Volume-mounted like `sources.yaml`, so no rebuild needed.
+
+## Re-qualifying stored deal listings after a pricing/parsing logic change
+
+`insert_new_items()` only ever inserts *new* rows — it never touches ones already in the DB — so a change
+to how `ebay.py` prices or parses listings (like the variation-picking logic) only affects new listings
+going forward, not ones already stored. To make every existing deal get re-fetched and re-classified under
+the current logic, wipe them and let the next poll repopulate from scratch:
+
+```
+docker compose exec feed-curator python reset_deals.py
+```
+
+Then either wait for the next hourly poll or trigger one immediately (see below).
 
 ## Forcing a refresh, bypassing the cooldown
 

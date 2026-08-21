@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     ebay_client_secret: str = ""
     ebay_marketplaces: str = "EBAY_FR,EBAY_DE,EBAY_GB"
     deal_max_price_eur: int = 500
+    # Ceiling for the separate "beyond budget" page - keeps wildly unrelated high-end gear out
+    # while still surfacing higher-end matches for a looser budget.
+    deal_extended_max_price_eur: int = 1500
     deals_file: str = "deals.yaml"
 
     # Baseline GBP->EUR rate, not live-fetched - update this occasionally by hand if it drifts far
