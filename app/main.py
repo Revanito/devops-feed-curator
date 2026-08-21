@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
+from math import ceil
 
 from dateutil import parser as date_parser
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -115,7 +116,6 @@ def _refresh_available() -> bool:
 @app.get("/")
 def index(request: Request):
     items = db.get_curated(limit=300, kind="news")
-    deal_items = db.get_curated(limit=60, kind="deal")
     stats = db.counts()
     reddit_items, blog_items, homelab_items = _split_columns(items)
     must_read_items = [item for item in items if item["critical"] and _is_recent(item, days=7)][:8]
@@ -126,7 +126,34 @@ def index(request: Request):
         "must_read_items": must_read_items, "cve_items": cve_items,
         "all_tags": all_tags, "css_version": _css_version, "favicon_version": _favicon_version,
         "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
-        "deal_items": deal_items,
+    })
+
+
+def _price_range_label(items: list) -> str:
+    if not items:
+        return ""
+    totals = [item["price"] + (item["shipping"] or 0) for item in items]
+    lo, hi = min(totals), max(totals)
+    currency = items[0]["currency"] or "EUR"
+    if round(lo) == round(hi):
+        return f"~{lo:.0f} {currency}"
+    return f"{lo:.0f}–{hi:.0f} {currency}"
+
+
+@app.get("/deals")
+def deals(request: Request):
+    items = db.get_curated_deals(limit=300)
+    n = len(items)
+    third = ceil(n / 3)
+    low_items, mid_items, high_items = items[:third], items[third:2 * third], items[2 * third:]
+    return templates.TemplateResponse("deals.html", {
+        "request": request, "refresh_available": _refresh_available(),
+        "css_version": _css_version, "favicon_version": _favicon_version,
+        "total": n,
+        "low_items": low_items, "mid_items": mid_items, "high_items": high_items,
+        "low_range": _price_range_label(low_items),
+        "mid_range": _price_range_label(mid_items),
+        "high_range": _price_range_label(high_items),
     })
 
 

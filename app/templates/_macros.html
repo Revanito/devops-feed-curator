@@ -1,0 +1,31 @@
+{% macro card(item, variant='', extra_class='') %}
+  <article class="card{{ ' ' + variant if variant else '' }}{{ ' ' + extra_class if extra_class else '' }}" data-tag="{{ (item.tag or '')|lower }}">
+    <a class="title" href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>
+    <div class="meta">
+      {% if item.price %}<span class="price">{{ "%.0f"|format(item.price + (item.shipping or 0)) }} {{ item.currency }}</span>{% endif %}
+      <span class="source">{{ item.source }}</span>
+      {% if item.tag %}<span class="tag">{{ item.tag }}</span>{% endif %}
+      <span class="published">{{ item.published }}</span>
+    </div>
+    {% if item.cpu or item.ram or item.storage %}
+    <div class="specs">
+      {% if item.cpu %}<span class="spec">{{ item.cpu }}</span>{% endif %}
+      {% if item.ram %}<span class="spec">{{ item.ram }} RAM</span>{% endif %}
+      {% if item.storage %}<span class="spec">{{ item.storage }}</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if item.summary %}<p class="summary">{{ item.summary|striptags }}</p>{% endif %}
+  </article>
+{% endmacro %}
+
+{% set page_size = 25 %}
+{% macro column(title, items, variant='', subtitle='') %}
+  <section class="column">
+    <h2>{{ title }}{% if subtitle %} <span class="column-subtitle">{{ subtitle }}</span>{% endif %}</h2>
+    {% if not items %}<p class="empty">Nothing here yet.</p>{% endif %}
+    {% for item in items %}{{ card(item, variant=variant, extra_class='hidden-card' if loop.index > page_size else '') }}{% endfor %}
+    {% if items|length > page_size %}
+    <button type="button" class="see-more">See more ({{ items|length - page_size }} more)</button>
+    {% endif %}
+  </section>
+{% endmacro %}

@@ -36,6 +36,28 @@ header h1 {
   font-size: 1.2rem;
 }
 
+.page-nav {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.page-nav-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding-bottom: 0.15rem;
+  border-bottom: 2px solid transparent;
+}
+
+.page-nav-link:hover { color: var(--text); }
+
+.page-nav-link.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
 .stats {
   display: flex;
   gap: 1rem;
@@ -197,14 +219,26 @@ main.columns {
   padding: 0.25rem 0;
 }
 
+.column-subtitle {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+main.columns.deals-page {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 @media (max-width: 1280px) {
-  main.columns {
+  main.columns, main.columns.deals-page {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 980px) {
-  main.columns {
+  main.columns, main.columns.deals-page {
     grid-template-columns: 1fr;
   }
   .column h2 { position: static; }

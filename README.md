@@ -26,10 +26,14 @@ items and admin-relevant IT world news.
   which single item is the problem. A lone item is retried once more before being quarantined (marked
   classified, dropped, tagged `unclassifiable`) — this avoids permanently dropping a perfectly fine item
   that just happened to hit a transient API blip while alone in a bisected batch of one.
-- The webpage at `/` shows the kept items in four columns — Reddit, Blogs & DevOps News, Homelab
-  (homelab-tagged items win that column regardless of source), and Homelab Deals — newest first within
-  each. Admin-relevant IT world news lands in Blogs & DevOps News, tagged accordingly (e.g. `microsoft`,
-  `outage`, `security`).
+- The webpage at `/` shows the kept news items in three columns — Reddit, Blogs & DevOps News, and Homelab
+  (homelab-tagged items win that column regardless of source) — newest first within each. Admin-relevant IT
+  world news lands in Blogs & DevOps News, tagged accordingly (e.g. `microsoft`, `outage`, `security`).
+- **`/deals` is a separate page** for Homelab Deals, kept apart from the news feed so the two can be
+  checked independently. Instead of newest-first, it splits listings into three columns by price -
+  **Cheapest / Mid-Range / Priciest** - each an even third of all kept deals, sorted lowest-to-highest
+  within itself, with the actual price range for that tier shown in the column header. The two pages share
+  a small nav link in the header to switch between them.
 - **Homelab Deals** is a separate pipeline from the RSS/news one: `app/ebay.py` polls the eBay Browse API
   (searches defined in `app/deals.yaml` - ThinkCentre Tiny, EliteDesk Mini, ProDesk Mini, NUC, OptiPlex
   Micro) across the marketplaces in `EBAY_MARKETPLACES` (default `EBAY_FR,EBAY_DE,EBAY_GB` - Germany and

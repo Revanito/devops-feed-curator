@@ -127,6 +127,15 @@ def get_curated(limit: int = 100, kind: str | None = None) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_curated_deals(limit: int = 300) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT * FROM items WHERE classified = 1 AND keep = 1 AND kind = 'deal'
+               ORDER BY (price + COALESCE(shipping, 0)) ASC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+
+
 def counts() -> dict[str, int]:
     with get_conn() as conn:
         row = conn.execute(
