@@ -13,7 +13,11 @@ log = logging.getLogger("ebay")
 
 _TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 _SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+_ITEM_BY_LEGACY_ID_URL = "https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id"
 _TIMEOUT = httpx.Timeout(30.0)
+
+_LEGACY_ITEM_ID_RE = re.compile(r"/itm/(\d+)")
+_SOURCE_MARKETPLACE_RE = re.compile(r"eBay \((\w+)\)")
 
 # eBay prices listings in the marketplace's home currency - GB listings are GBP, not EUR, so
 # searching EBAY_GB with priceCurrency:EUR would just return nothing.
@@ -368,3 +372,53 @@ def fetch_all() -> list[dict]:
                         "kind": "deal",
                     })
     return items
+
+
+def _marketplace_from_source(source: str) -> str:
+    m = _SOURCE_MARKETPLACE_RE.search(source or "")
+    return f"EBAY_{m.group(1)}" if m else "EBAY_FR"
+
+
+def check_availability(rows: list) -> tuple[list[str], list[str]]:
+    """Re-checks previously-kept deal listings against eBay to catch ones that have sold or been
+    taken down since we last saw them - nothing else does this, so without it a sold listing would
+    just sit on the page forever. Returns (ids no longer available, ids successfully checked -
+    including still-available ones - so the caller can update last_checked_at on all of them)."""
+    if not settings.ebay_client_id or not settings.ebay_client_secret:
+        return [], []
+
+    gone, checked = [], []
+    with httpx.Client(timeout=_TIMEOUT) as client:
+        token = _get_token(client)
+        if not token:
+            return [], []
+
+        for row in rows:
+            m = _LEGACY_ITEM_ID_RE.search(row["link"] or "")
+            if not m:
+                checked.append(row["id"])
+                continue
+
+            try:
+                resp = client.get(
+                    _ITEM_BY_LEGACY_ID_URL,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "X-EBAY-C-MARKETPLACE-ID": _marketplace_from_source(row["source"]),
+                    },
+                    params={"legacy_item_id": m.group(1)},
+                )
+                if resp.status_code == 404:
+                    gone.append(row["id"])
+                elif resp.status_code == 200:
+                    availabilities = resp.json().get("estimatedAvailabilities", [])
+                    if any(a.get("estimatedAvailabilityStatus") == "OUT_OF_STOCK" for a in availabilities):
+                        gone.append(row["id"])
+                else:
+                    log.warning("eBay availability check failed for %s (%s): %s",
+                                row["id"], resp.status_code, resp.text[:200])
+            except httpx.HTTPError as exc:
+                log.warning("eBay availability check errored for %s: %s", row["id"], exc)
+
+            checked.append(row["id"])
+    return gone, checked

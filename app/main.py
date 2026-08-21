@@ -46,6 +46,14 @@ async def poll_and_classify() -> None:
         deal_inserted = db.insert_new_items(deal_items)
         log.info("fetched %d deal listings, %d new", len(deal_items), deal_inserted)
 
+        to_recheck = db.get_deals_to_recheck(settings.deal_recheck_batch_size)
+        if to_recheck:
+            gone_ids, checked_ids = await asyncio.to_thread(ebay.check_availability, to_recheck)
+            db.mark_checked(checked_ids)
+            db.delete_items(gone_ids)
+            log.info("re-checked %d deal listings, %d no longer available on eBay",
+                      len(checked_ids), len(gone_ids))
+
         await _classify_pending("news", classify_batch_isolating_failures)
         await _classify_pending("deal", classify_deals_batch_isolating_failures)
 

@@ -34,5 +34,10 @@ class Settings(BaseSettings):
     # from reality. Good enough for "is this roughly under budget", not for actual accounting.
     gbp_to_eur_rate: float = 1.17
 
+    # How many already-kept deal listings to re-check against eBay per poll, to catch ones that
+    # have sold/ended since we last saw them. A rolling sweep rather than checking everything
+    # every time, so the per-poll cost stays flat regardless of how many listings have piled up.
+    deal_recheck_batch_size: int = 50
+
 
 settings = Settings()

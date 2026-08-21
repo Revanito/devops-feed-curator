@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS items (
     currency TEXT,
     cpu TEXT,
     ram TEXT,
-    storage TEXT
+    storage TEXT,
+    last_checked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_items_keep_published ON items (keep, published);
 """
@@ -47,6 +48,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE items ADD COLUMN ram TEXT")
     if "storage" not in columns:
         conn.execute("ALTER TABLE items ADD COLUMN storage TEXT")
+    if "last_checked_at" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN last_checked_at TEXT")
 
     # One-time backfill: items ingested before feeds.py stripped HTML from summaries can have
     # raw/mid-tag-truncated markup baked into this column - which was making 1min.ai reject the
@@ -143,6 +146,34 @@ def get_curated_deals(limit: int = 300, min_total: float | None = None, max_tota
                 ORDER BY (price + COALESCE(shipping, 0)) ASC LIMIT ?""",
             params,
         ).fetchall()
+
+
+def get_deals_to_recheck(limit: int = 50) -> list[sqlite3.Row]:
+    """Kept deal listings due for an eBay availability check, never-checked ones first, then the
+    ones checked longest ago - so a sweep of `limit` per poll steadily cycles through the whole
+    set over time regardless of how many listings have piled up."""
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT id, link, source FROM items
+               WHERE kind = 'deal' AND classified = 1 AND keep = 1
+               ORDER BY (last_checked_at IS NULL) DESC, last_checked_at ASC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+
+
+def mark_checked(ids: list[str]) -> None:
+    if not ids:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        conn.executemany("UPDATE items SET last_checked_at = ? WHERE id = ?", [(now, i) for i in ids])
+
+
+def delete_items(ids: list[str]) -> None:
+    if not ids:
+        return
+    with get_conn() as conn:
+        conn.executemany("DELETE FROM items WHERE id = ?", [(i,) for i in ids])
 
 
 def counts() -> dict[str, int]:
