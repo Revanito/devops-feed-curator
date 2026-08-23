@@ -28,11 +28,12 @@ Five pages, sharing one poll/classify cycle and one nav bar (top-right, on every
 - `app/sources.yaml` lists the feeds to poll (reddit subs, HN, blogs, IT-news sites like BleepingComputer,
   Krebs on Security, SANS ISC, and the Microsoft Security Blog). It's volume-mounted into the container,
   so edits take effect on the next poll cycle without a rebuild.
-- Every `POLL_INTERVAL_MINUTES` (default 60), the app fetches all feeds, stores new items in a local
-  SQLite DB (`data/feeds.db`), then sends unclassified items in batches to a cheap LLM (`gpt-4o-mini` via
-  1min.ai, same API key/provider as [discord-1min-proxy](../discord-1min-proxy)) asking it to keep/drop
-  each one, tag it with a topic, and flag it `critical` if it's a big, broadly-impactful incident (major
-  outages, actively-exploited zero-days, CrowdStrike-style events) rather than routine news.
+- Once a day at `POLL_HOUR:POLL_MINUTE` (default 00:00 server time), the app fetches all feeds, stores
+  new items in a local SQLite DB (`data/feeds.db`), then sends unclassified items in batches to a cheap
+  LLM (`gpt-4o-mini` via 1min.ai, same API key/provider as
+  [discord-1min-proxy](../discord-1min-proxy)) asking it to keep/drop each one, tag it with a topic, and
+  flag it `critical` if it's a big, broadly-impactful incident (major outages, actively-exploited
+  zero-days, CrowdStrike-style events) rather than routine news.
 - Kept items land in three columns — Reddit, Blogs & DevOps News, and Homelab (homelab-tagged items win
   that column regardless of source) — newest first within each. Admin-relevant IT world news lands in
   Blogs & DevOps News, tagged accordingly (e.g. `microsoft`, `outage`, `security`).
@@ -211,7 +212,7 @@ greys out and reads "cooling down" while a recent refresh is still in effect. Cl
 (redirects straight back) — the actual fetch + classification runs in the background rather than blocking
 the request, so it doesn't sit there long enough to trip a reverse-proxy timeout (this used to 502 after
 ~60s on a slow poll, then recover once the request finally finished server-side). A lock prevents two polls
-(manual + the hourly schedule) from ever running at once. The page just won't show fresh results until the
+(manual + the daily schedule) from ever running at once. The page just won't show fresh results until the
 background poll actually finishes — reload after a bit.
 
 ## Setup
@@ -259,7 +260,7 @@ the current logic, wipe them and let the next poll repopulate from scratch:
 docker compose exec feed-curator python reset_deals.py
 ```
 
-Then either wait for the next hourly poll or trigger one immediately (see below).
+Then either wait for the next daily poll or trigger one immediately (see below).
 
 ## Forcing a refresh, bypassing the cooldown
 

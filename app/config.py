@@ -8,7 +8,11 @@ class Settings(BaseSettings):
     one_min_base_url: str = "https://api.1min.ai"
     model_classifier: str = "gpt-4o-mini"
 
-    poll_interval_minutes: int = 60
+    # Automatic poll runs once a day at this hour:minute (server local time) instead of on a fixed
+    # interval, to keep classification token usage down. Use the "Refresh now" button (or POST
+    # /refresh with an admin token) to poll on demand between scheduled runs.
+    poll_hour: int = 0
+    poll_minute: int = 0
     refresh_cooldown_minutes: int = 10
     classify_batch_size: int = 15
     max_items_per_source: int = 25

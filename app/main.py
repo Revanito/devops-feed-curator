@@ -87,8 +87,8 @@ async def _classify_pending(kind: str, classify_fn) -> None:
 async def lifespan(app: FastAPI):
     db.init_db()
     scheduler.add_job(
-        poll_and_classify, "interval",
-        minutes=settings.poll_interval_minutes, next_run_time=datetime.now(),
+        poll_and_classify, "cron",
+        hour=settings.poll_hour, minute=settings.poll_minute, next_run_time=datetime.now(),
     )
     scheduler.start()
     yield
