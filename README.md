@@ -74,7 +74,12 @@ Mini, ProDesk Mini, NUC, OptiPlex Micro) across the marketplaces in `EBAY_MARKET
 `EBAY_FR,EBAY_DE,EBAY_GB` — Germany and the UK both have far more listings for this category than France
 alone). Every search also filters on `EBAY_DELIVERY_COUNTRY` (default `FR`) so eBay only returns
 listings that can actually ship there in the first place — a German or UK marketplace search can still
-turn up a seller who won't ship internationally, and there's no point surfacing that.
+turn up a seller who won't ship internationally, and there's no point surfacing that. That server-side
+filter isn't fully reliable in practice though (a domestic-UK-only listing has shown up despite it), so
+`_no_shipping_available()` also rejects any listing with a completely empty `shippingOptions` list - the
+strongest client-side signal available that there's no route to the requested country. It only rejects
+on a fully empty list, not merely on an unresolved (CALCULATED, checkout-time) shipping cost, since that
+alone is common and doesn't mean a listing won't ship.
 
 **Pricing.** Every listing's price + shipping is converted to EUR (`GBP_TO_EUR_RATE`, default 1.17, not
 live-fetched — update it by hand occasionally) to get one true comparable total. That total decides which

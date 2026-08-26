@@ -468,6 +468,16 @@ def _shipping_cost(raw: dict) -> float | None:
     return None
 
 
+def _no_shipping_available(raw: dict) -> bool:
+    """The search's deliveryCountry filter isn't fully reliable - a domestic-only UK listing has
+    shown up in an EBAY_DELIVERY_COUNTRY=FR search despite that. A completely empty shippingOptions
+    array is the strongest client-side signal available that a listing has no route to the
+    requested country at all, as opposed to just having CALCULATED (checkout-time) shipping, which
+    is common and doesn't mean it won't ship - so only reject on a fully empty list, not merely on
+    _shipping_cost() returning None."""
+    return not raw.get("shippingOptions")
+
+
 def fetch_all() -> list[dict]:
     if not settings.ebay_client_id or not settings.ebay_client_secret:
         return []
@@ -492,6 +502,8 @@ def fetch_all() -> list[dict]:
                     if _too_old(title):
                         continue
                     if _not_working(condition):
+                        continue
+                    if _no_shipping_available(raw):
                         continue
 
                     # For a multi-variation listing, resolve which specific configuration is
@@ -605,6 +617,8 @@ def fetch_ram_all() -> list[dict]:
                     if not link or not price.get("value"):
                         continue
                     if _not_working(condition):
+                        continue
+                    if _no_shipping_available(raw):
                         continue
                     if _ram_generation_reason(title):
                         continue
