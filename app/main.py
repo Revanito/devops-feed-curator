@@ -42,8 +42,10 @@ async def poll_and_classify() -> None:
     async with _poll_lock:
         log.info("polling feeds...")
         items = await asyncio.to_thread(feeds.fetch_all)
+        reddit_items = await asyncio.to_thread(feeds.fetch_reddit)
+        items += reddit_items
         inserted = db.insert_new_items(items)
-        log.info("fetched %d items, %d new", len(items), inserted)
+        log.info("fetched %d items (%d reddit), %d new", len(items), len(reddit_items), inserted)
 
         log.info("polling eBay deals...")
         deal_items = await asyncio.to_thread(ebay.fetch_all)

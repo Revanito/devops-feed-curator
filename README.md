@@ -28,9 +28,10 @@ Five pages, sharing one poll/classify cycle and one nav bar (top-right, on every
 - `app/sources.yaml` lists the feeds to poll (reddit subs, HN, blogs, IT-news sites like BleepingComputer,
   Krebs on Security, SANS ISC, and the Microsoft Security Blog). It's volume-mounted into the container,
   so edits take effect on the next poll cycle without a rebuild.
-- Once a day at `POLL_HOUR:POLL_MINUTE` (default 00:00 server time), the app fetches all feeds, stores
-  new items in a local SQLite DB (`data/feeds.db`), then sends unclassified items in batches to a cheap
-  LLM (`gpt-4o-mini` via 1min.ai, same API key/provider as
+- Once a day at `POLL_HOUR:POLL_MINUTE` (default 00:00 server time), the app fetches all feeds except
+  Reddit (which runs on its own separate, much longer clock - see "Reddit is special-cased" below),
+  stores new items in a local SQLite DB (`data/feeds.db`), then sends unclassified items in batches to
+  a cheap LLM (`gpt-4o-mini` via 1min.ai, same API key/provider as
   [discord-1min-proxy](../discord-1min-proxy)) asking it to keep/drop each one, tag it with a topic, and
   flag it `critical` if it's a big, broadly-impactful incident (major outages, actively-exploited
   zero-days, CrowdStrike-style events) rather than routine news.
@@ -243,14 +244,20 @@ just a restart (`docker compose restart`, or `up -d --build` if you're also chan
 Edit `app/sources.yaml`. Any standard RSS/Atom feed URL works. No restart required — the file is
 volume-mounted and read fresh on each poll.
 
-**Reddit is special-cased.** Reddit's anonymous RSS rate limit is tight enough that even one request
-per subreddit per poll gets everything after the first blocked with a 429 - so don't add separate
-`reddit.com/r/<sub>/.rss` entries. Instead add/remove subreddits by editing the single combined
-`old.reddit.com/r/sub1+sub2+.../new/.rss?limit=100` URL already in `sources.yaml` (join subreddit names
-with `+`). `feeds.py` re-derives the real per-item subreddit from each entry's own link, so cards and
+**Reddit is special-cased.** Reddit's anonymous RSS access is tight enough that even a second request
+right after a first one gets blocked (429 on `www.reddit.com`, a login-wall redirect on
+`old.reddit.com`) - so it isn't fetched on the regular poll cycle at all. `feeds.fetch_reddit()` runs
+on its own separate clock, at most once every `REDDIT_POLL_HOURS` (default 8), independent of the
+news/deals poll and of manual refreshes - so neither burns down its budget. Don't add separate
+`reddit.com/r/<sub>/.rss` entries per subreddit; add/remove subreddits by editing the single combined
+`www.reddit.com/r/sub1+sub2+.../new/.rss` URL already in `sources.yaml` (join subreddit names with
+`+`, stick to `www.reddit.com` specifically - `old.reddit.com` has reliably login-walled us in
+testing). `feeds.py` re-derives the real per-item subreddit from each entry's own link, so cards and
 the Reddit/Homelab column split still work correctly per subreddit even though it's one request. Note
 this means subreddits share one pool of items sorted by recency, rather than each getting a guaranteed
-quota - a much more active subreddit can crowd out a quieter one if you add a lot of them.
+quota - a much more active subreddit can crowd out a quieter one if you add a lot of them. If
+`REDDIT_POLL_HOURS` turns out too aggressive (429s reappear) or too conservative, just tune the env
+var - no code change needed.
 
 ## Adding/removing eBay deal searches
 

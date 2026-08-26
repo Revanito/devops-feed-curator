@@ -1,13 +1,16 @@
 # RSS/Atom sources to poll. Add/remove freely - no code changes needed.
-# "reddit" is one combined multireddit feed, not one entry per subreddit - Reddit's anonymous rate
-# limit is tight enough that even one request per subreddit per poll gets every request after the
-# first blocked with a 429. feeds.py re-derives the real per-item subreddit from each entry's own
-# link, so cards/columns still show the correct r/name despite it being a single request. `limit`
-# (optional, defaults to MAX_ITEMS_PER_SOURCE) raises the cap for this combined feed so quieter
-# subreddits still get a fair share of the shared pool of items.
+# "reddit" is one combined multireddit feed, not one entry per subreddit - Reddit's anonymous access
+# is tight enough that a second request right after the first gets blocked (429, or on old.reddit.com
+# a redirect to a login wall), so it's fetched on its own separate clock (REDDIT_POLL_HOURS, see
+# config.py/feeds.fetch_reddit()) rather than every poll. Stick to www.reddit.com specifically - a
+# lone request there has reliably succeeded in testing, old.reddit.com has not. feeds.py re-derives
+# the real per-item subreddit from each entry's own link, so cards/columns still show the correct
+# r/name despite it being one combined request. `limit` (optional, defaults to MAX_ITEMS_PER_SOURCE)
+# raises the cap for this combined feed so quieter subreddits still get a fair share of the shared
+# pool of items - Reddit's RSS endpoint appears to cap actual results at 25 regardless.
 reddit:
   - name: Reddit (combined)
-    url: https://old.reddit.com/r/homelab+selfhosted+docker+devops+kubernetes+sysadmin/new/.rss?limit=100
+    url: https://www.reddit.com/r/homelab+selfhosted+docker+devops+kubernetes+sysadmin/new/.rss
     limit: 100
 
 hackernews:

@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS items (
     kit TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_items_keep_published ON items (keep, published);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -182,6 +186,20 @@ def delete_items(ids: list[str]) -> None:
         return
     with get_conn() as conn:
         conn.executemany("DELETE FROM items WHERE id = ?", [(i,) for i in ids])
+
+
+def get_meta(key: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+
+def set_meta(key: str, value: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
 
 
 def counts() -> dict[str, int]:

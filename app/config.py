@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     sources_file: str = "sources.yaml"
     db_path: str = "/data/feeds.db"
 
+    # Reddit's anonymous RSS access blocks any request that follows another too soon (a single
+    # combined multireddit request works, a second one seconds later doesn't) - so it's fetched on
+    # its own clock, independent of the news/deals poll and manual refreshes, at most once every
+    # this many hours. Tune this up if 429s/blocks come back, down if it turns out to be too
+    # conservative - no code change needed either way.
+    reddit_poll_hours: int = 8
+
     # Optional: set to enable POST /refresh (send as X-Admin-Token header). Leave blank to disable it entirely.
     admin_token: str = ""
 
