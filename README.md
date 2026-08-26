@@ -289,9 +289,11 @@ an eBay `keywords` search string, run against every marketplace in `EBAY_MARKETP
 ## Re-qualifying stored deal listings after a pricing/parsing logic change
 
 `insert_new_items()` only ever inserts *new* rows — it never touches ones already in the DB — so a change
-to how `ebay.py` prices or parses listings (like the variation-picking logic) only affects new listings
-going forward, not ones already stored. To make every existing deal get re-fetched and re-classified under
-the current logic, wipe them and let the next poll repopulate from scratch:
+to how `ebay.py`/`classifier.py` prices, parses, or classifies listings (like the variation-picking logic,
+the delivery-country filter, or the RAM title translation) only affects new listings going forward, not
+ones already stored. `reset_deals.py` wipes **both** mini-PC deals and RAM deals (`kind IN ('deal',
+'ram')`) in one go — there's no separate script for RAM. To make every existing listing get re-fetched and
+re-classified under the current logic, wipe them and let the next poll repopulate from scratch:
 
 ```
 docker compose exec feed-curator python reset_deals.py
