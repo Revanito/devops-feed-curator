@@ -47,6 +47,10 @@ async def poll_and_classify() -> None:
         inserted = db.insert_new_items(items)
         log.info("fetched %d items (%d reddit), %d new", len(items), len(reddit_items), inserted)
 
+        deleted = db.delete_old_items(settings.news_max_age_days, kind="news")
+        if deleted:
+            log.info("deleted %d news items older than %d days", deleted, settings.news_max_age_days)
+
         log.info("polling eBay deals...")
         deal_items = await asyncio.to_thread(ebay.fetch_all)
         deal_inserted = db.insert_new_items(deal_items)

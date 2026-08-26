@@ -1,6 +1,6 @@
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from config import settings
 
@@ -186,6 +186,17 @@ def delete_items(ids: list[str]) -> None:
         return
     with get_conn() as conn:
         conn.executemany("DELETE FROM items WHERE id = ?", [(i,) for i in ids])
+
+
+def delete_old_items(days: int, kind: str = "news") -> int:
+    """News items have no availability re-check the way eBay-backed deals do, so without this a
+    column with too little fresh volume just accumulates old items forever instead of going quiet -
+    cutoff is based on seen_at (when this app first indexed the item), not the feed-supplied
+    published date, since that's a free-form string some feeds format inconsistently."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM items WHERE kind = ? AND seen_at < ?", (kind, cutoff))
+        return cur.rowcount
 
 
 def get_meta(key: str) -> str | None:

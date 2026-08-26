@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     sources_file: str = "sources.yaml"
     db_path: str = "/data/feeds.db"
 
+    # News items (Must Read, Latest CVEs, and the 3 columns) older than this many days get deleted
+    # each poll, rather than lingering indefinitely when a quiet stretch doesn't produce enough fresh
+    # volume to push them off the page.
+    news_max_age_days: int = 7
+
     # Reddit's anonymous RSS access blocks any request that follows another too soon (a single
     # combined multireddit request works, a second one seconds later doesn't) - so it's fetched on
     # its own clock, independent of the news/deals poll and manual refreshes, at most once every

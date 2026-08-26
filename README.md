@@ -44,6 +44,11 @@ Five pages, sharing one poll/classify cycle and one nav bar (top-right, on every
 - A **Latest CVEs** section below that shows the 3 most recent items tagged `cve` (genuine vulnerability
   disclosures on major products, as opposed to generic `security` news) — no dedicated CVE feed, just a
   display pull from whatever the classifier already tagged that way.
+- News items older than `NEWS_MAX_AGE_DAYS` (default 7) get deleted outright each poll, based on when
+  this app first saw the item (not the feed's own published date, which some feeds format
+  inconsistently) — otherwise a column with too little fresh volume just accumulates old items
+  forever instead of going quiet. This is real deletion, unlike the Must Read banner's 7-day filter
+  above (which only hides old items from that one section, the items themselves stay put).
 
 **Two robustness details worth knowing about:**
 - Item summaries have HTML tags stripped and entities decoded *before* truncating to length, not after —
