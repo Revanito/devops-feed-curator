@@ -123,6 +123,12 @@ def apply_classifications(results: dict[str, dict]) -> None:
                 (1 if r["keep"] else 0, r["tag"], 1 if r["critical"] else 0,
                  r.get("cpu"), r.get("ram"), r.get("storage"), r.get("capacity"), r.get("kit"), item_id),
             )
+            # Only the RAM prompt's classifier ever fills this in (an English translation of a
+            # non-English title) - leave the stored title alone otherwise rather than overwrite it
+            # with an empty string.
+            title_en = r.get("title_en")
+            if title_en:
+                conn.execute("UPDATE items SET title = ? WHERE id = ?", (title_en, item_id))
 
 
 def get_curated(limit: int = 100, kind: str | None = None) -> list[sqlite3.Row]:

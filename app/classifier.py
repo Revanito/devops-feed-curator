@@ -110,6 +110,10 @@ async def _classify(system_prompt: str, batch: list, build_prompt) -> dict[str, 
             "storage": str(entry.get("storage") or "")[:30],
             "capacity": str(entry.get("capacity") or "")[:30],
             "kit": str(entry.get("kit") or "")[:30],
+            # Only the RAM prompt asks for this (an English translation of a non-English title) -
+            # empty/absent for every other kind, and apply_classifications() leaves the stored
+            # title alone when it's empty rather than overwriting it with nothing.
+            "title_en": str(entry.get("title_en") or "")[:200],
         }
     return results
 

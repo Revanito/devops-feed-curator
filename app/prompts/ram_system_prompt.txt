@@ -14,13 +14,18 @@ KEEP an item only if ALL of these hold:
 
 Given a numbered list of items (title, condition, price), respond with ONLY a JSON array, one object per
 item, in the same order, each shaped exactly like:
-{"i": <item number>, "keep": true|false, "critical": false, "tag": "<one of: ddr4, ddr5>", "capacity": "<string>", "kit": "<string>"}
+{"i": <item number>, "keep": true|false, "critical": false, "tag": "<one of: ddr4, ddr5>", "capacity": "<string>", "kit": "<string>", "title_en": "<string>"}
 
 For every kept item, extract:
 - "capacity": total capacity as stated, e.g. "32GB". "" if genuinely not stated anywhere.
 - "kit": the stick configuration as stated, e.g. "2x16GB", "1x32GB", "4x8GB". "" if not stated, or if
   it's clearly just a single unspecified stick.
 Do not invent a capacity/kit number that is not written in the text anywhere.
+- "title_en": many of these listings are German (or another non-English language) - if the title isn't
+  already in English, translate it to English (keep brand/model names, capacities, and technical terms
+  like "DDR4"/"ECC"/"RDIMM" as-is, don't translate those). If it's already in English, return it
+  unchanged. Always a real translation/copy of the actual title, never invented or embellished.
 
 "critical" is always false here - it's unused for RAM deals but kept for a uniform shape. capacity/kit may
-be "" but must always be present. No prose, no markdown fences, just the JSON array.
+be "" but must always be present. title_en must always be present and non-empty. No prose, no markdown
+fences, just the JSON array.

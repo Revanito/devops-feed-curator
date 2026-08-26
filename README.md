@@ -209,6 +209,13 @@ just one or the other. This parsed hint gets folded into the summary text the sa
 pipeline hints at a "Selected configuration" — cheap, deterministic, and gives the LLM something concrete
 to just confirm rather than re-derive from scratch.
 
+**Title translation.** A lot of RAM listings (especially from `EBAY_DE`) have German titles, unlike
+mini-PC deals where the condition field was the main non-English text. Rather than a separate
+translation step, the RAM classifier prompt itself is asked to return an English `title_en` alongside
+its usual keep/tag/capacity/kit output - `apply_classifications()` overwrites the stored title with it
+when present. This runs *after* the deterministic capacity/kit/DDR-generation checks, which all still
+see the original title, so translation can't affect what gets kept or how it's parsed.
+
 **Scope note - no variation-group resolution.** Unlike mini-PC deals, RAM listings don't get the
 multi-variation "choose your configuration" treatment (`_pick_best_variation` and friends) - that
 machinery exists specifically to pick the best *CPU* among a listing's options, which has no RAM analogue
