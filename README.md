@@ -240,8 +240,17 @@ just a restart (`docker compose restart`, or `up -d --build` if you're also chan
 
 ## Adding/removing feeds
 
-Edit `app/sources.yaml`. Any standard RSS/Atom feed URL works. Reddit subreddits: append `/.rss` to the
-subreddit URL. No restart required — the file is volume-mounted and read fresh on each poll.
+Edit `app/sources.yaml`. Any standard RSS/Atom feed URL works. No restart required — the file is
+volume-mounted and read fresh on each poll.
+
+**Reddit is special-cased.** Reddit's anonymous RSS rate limit is tight enough that even one request
+per subreddit per poll gets everything after the first blocked with a 429 - so don't add separate
+`reddit.com/r/<sub>/.rss` entries. Instead add/remove subreddits by editing the single combined
+`old.reddit.com/r/sub1+sub2+.../new/.rss?limit=100` URL already in `sources.yaml` (join subreddit names
+with `+`). `feeds.py` re-derives the real per-item subreddit from each entry's own link, so cards and
+the Reddit/Homelab column split still work correctly per subreddit even though it's one request. Note
+this means subreddits share one pool of items sorted by recency, rather than each getting a guaranteed
+quota - a much more active subreddit can crowd out a quieter one if you add a lot of them.
 
 ## Adding/removing eBay deal searches
 

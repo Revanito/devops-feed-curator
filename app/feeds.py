@@ -14,6 +14,7 @@ log = logging.getLogger("feeds")
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _DANGLING_TAG_RE = re.compile(r"<[^>]*$")
+_REDDIT_LINK_RE = re.compile(r"reddit\.com/r/([A-Za-z0-9_]+)/", re.IGNORECASE)
 
 # feedparser's default User-Agent gets rate-limited/blocked by Reddit after the first request or
 # two (no HTTP error - just an empty-but-valid feed body), so a real browser UA plus a delay between
@@ -38,6 +39,14 @@ def _load_sources() -> list[dict]:
 
 def _item_id(link: str) -> str:
     return hashlib.sha256(link.encode()).hexdigest()[:16]
+
+
+def _entry_source_name(source: dict, entry) -> str:
+    """A combined multireddit feed reports one static source["name"] for entries actually spanning
+    several subreddits - pull the real r/name out of the entry's own link instead, so cards and the
+    Reddit/Homelab column split still reflect the subreddit a post actually came from."""
+    match = _REDDIT_LINK_RE.search(entry.get("link", ""))
+    return f"r/{match.group(1)}" if match else source["name"]
 
 
 def _clean_summary(raw: str) -> str:
@@ -82,13 +91,14 @@ def fetch_all() -> list[dict]:
                     source["name"], source["url"], len(resp.content),
                 )
                 continue
-            for entry in parsed.entries[: settings.max_items_per_source]:
+            limit = source.get("limit", settings.max_items_per_source)
+            for entry in parsed.entries[:limit]:
                 link = entry.get("link", "")
                 if not link:
                     continue
                 items.append({
                     "id": _item_id(link),
-                    "source": source["name"],
+                    "source": _entry_source_name(source, entry),
                     "title": entry.get("title", "(no title)").strip(),
                     "link": link,
                     "summary": _clean_summary(entry.get("summary", "")),
