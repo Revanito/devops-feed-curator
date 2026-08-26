@@ -417,7 +417,10 @@ def _search(client: httpx.Client, token: str, marketplace: str, keywords: str, m
         },
         params={
             "q": keywords,
-            "filter": f"price:[..{max_price_eur}],priceCurrency:{currency},buyingOptions:{{FIXED_PRICE}}",
+            "filter": (
+                f"price:[..{max_price_eur}],priceCurrency:{currency},buyingOptions:{{FIXED_PRICE}},"
+                f"deliveryCountry:{settings.ebay_delivery_country}"
+            ),
             "sort": "newlyListed",
             "limit": "25",
         },

@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
     ebay_marketplaces: str = "EBAY_FR,EBAY_DE,EBAY_GB"
+    # ISO country code eBay's search filter uses to only return listings that can actually be
+    # delivered here - no point surfacing a UK listing with no shipping to France.
+    ebay_delivery_country: str = "FR"
     deal_max_price_eur: int = 500
     # Ceiling for the separate "beyond budget" page - keeps wildly unrelated high-end gear out
     # while still surfacing higher-end matches for a looser budget.
