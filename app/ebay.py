@@ -104,12 +104,37 @@ _RYZEN_MODEL_RE = re.compile(r"ryzen\s*[3579]\s*[\s-]?(\d{4})", re.IGNORECASE)
 # without it, so requiring the sub-brand name would miss those entirely.
 _HP_GEN_RE = re.compile(r"\bhp\s*(?:elitedesk|prodesk)?\s*[4678]\d{2}\s*g(\d)\b", re.IGNORECASE)
 # eBay's condition field is a short standardized string ("New", "Used", "For parts or not
-# working", etc) - a "for parts" listing is never a real deal regardless of specs/price.
-_NOT_WORKING_RE = re.compile(r"for parts|not working", re.IGNORECASE)
+# working", etc) - a "for parts" listing is never a real deal regardless of specs/price. Also
+# matches the German equivalents, since EBAY_DE listings return this field in German, not English.
+_NOT_WORKING_RE = re.compile(r"for parts|not working|für teile|nicht funktionierend", re.IGNORECASE)
+
+# eBay's condition field comes back in the marketplace's own language - EBAY_DE listings report
+# German text ("Gebraucht", etc) rather than English, so translate the common values for a
+# consistent card summary regardless of which marketplace a listing came from. Falls back to the
+# original text untranslated for anything not in this list rather than hiding it.
+_GERMAN_CONDITION_TRANSLATIONS = {
+    "neu": "New",
+    "neu mit etikett": "New with tags",
+    "neu ohne etikett": "New without tags",
+    "neu (sonstige) (siehe artikelbeschreibung)": "New (other) (see details)",
+    "wie neu": "New other (see details)",
+    "zertifiziert - refurbished": "Certified refurbished",
+    "generalüberholt": "Refurbished",
+    "generalüberholt - wie neu": "Refurbished - like new",
+    "vom verkäufer generalüberholt": "Seller refurbished",
+    "vom hersteller generalüberholt": "Manufacturer refurbished",
+    "gebraucht": "Used",
+    "akzeptabel": "Acceptable",
+    "für teile oder nicht funktionierend": "For parts or not working",
+}
 
 
 def _not_working(condition: str) -> bool:
     return bool(_NOT_WORKING_RE.search(condition or ""))
+
+
+def _translate_condition(condition: str) -> str:
+    return _GERMAN_CONDITION_TRANSLATIONS.get((condition or "").strip().lower(), condition)
 
 
 # RAM deals: only DDR4/DDR5 qualify - DDR3-or-older is dropped outright regardless of price or
@@ -460,7 +485,7 @@ def fetch_all() -> list[dict]:
                 for raw in _search(client, token, marketplace, search["keywords"], settings.deal_extended_max_price_eur):
                     link = raw.get("itemWebUrl", "")
                     price = raw.get("price", {})
-                    condition = raw.get("condition", "")
+                    condition = _translate_condition(raw.get("condition", ""))
                     title = raw.get("title", "(no title)").strip()
                     if not link or not price.get("value"):
                         continue
@@ -575,7 +600,7 @@ def fetch_ram_all() -> list[dict]:
                 for raw in _search(client, token, marketplace, search["keywords"], settings.ram_extended_max_price_eur):
                     link = raw.get("itemWebUrl", "")
                     price = raw.get("price", {})
-                    condition = raw.get("condition", "")
+                    condition = _translate_condition(raw.get("condition", ""))
                     title = raw.get("title", "(no title)").strip()
                     if not link or not price.get("value"):
                         continue

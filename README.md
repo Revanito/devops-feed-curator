@@ -144,7 +144,14 @@ check listing") whenever this happens, instead of the normal "price shown is for
 
 **Non-working listings.** `_not_working()` drops anything whose eBay `condition` field says "For parts or
 not working" (eBay's own standardized condition string) — broken hardware isn't a deal regardless of specs
-or price, so this is checked before anything else, alongside the age/CPU gate.
+or price, so this is checked before anything else, alongside the age/CPU gate. Also matches the German
+equivalent ("Für Teile oder nicht funktionierend"), since `EBAY_DE` listings report this field in German.
+
+**Condition translation.** eBay reports the `condition` field in the marketplace's own language, so a
+German listing's card would otherwise show "Gebraucht" instead of "Used" — `_translate_condition()`
+maps the common German condition values to English for a consistent summary regardless of which
+marketplace a listing came from, falling back to the original text untranslated for anything not in
+that list.
 
 **Classification.** Results are stored the same way as feed items (`kind = 'deal'`) but classified with a
 *different* system prompt ([`app/prompts/deals_system_prompt.txt`](app/prompts/deals_system_prompt.txt))
