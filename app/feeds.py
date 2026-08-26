@@ -2,6 +2,7 @@ import hashlib
 import html
 import logging
 import re
+import time
 
 import feedparser
 import yaml
@@ -12,6 +13,15 @@ log = logging.getLogger("feeds")
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _DANGLING_TAG_RE = re.compile(r"<[^>]*$")
+
+# feedparser's default User-Agent gets rate-limited/blocked by Reddit after a couple of requests
+# in quick succession (no error, just stale/empty responses) - a real browser UA plus a small delay
+# between requests keeps every subreddit in sources.yaml fetching reliably, not just the first one.
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+_REQUEST_DELAY_SECONDS = 1.5
 
 
 def _load_sources() -> list[dict]:
@@ -42,10 +52,16 @@ def _clean_summary(raw: str) -> str:
 
 def fetch_all() -> list[dict]:
     items = []
-    for source in _load_sources():
-        parsed = feedparser.parse(source["url"])
+    sources = _load_sources()
+    for i, source in enumerate(sources):
+        if i > 0:
+            time.sleep(_REQUEST_DELAY_SECONDS)
+        parsed = feedparser.parse(source["url"], request_headers={"User-Agent": _USER_AGENT})
         if parsed.bozo and not parsed.entries:
             log.warning("failed to parse feed %s (%s): %s", source["name"], source["url"], parsed.bozo_exception)
+            continue
+        if not parsed.entries:
+            log.warning("feed %s (%s) returned no entries - possibly rate-limited/blocked", source["name"], source["url"])
             continue
         for entry in parsed.entries[: settings.max_items_per_source]:
             link = entry.get("link", "")
