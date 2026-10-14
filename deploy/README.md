@@ -15,7 +15,7 @@ git clone https://github.com/Revanito/devops-feed-curator.git
 cd devops-feed-curator
 cp .env.example .env   # fill in ONE_MIN_API_KEY, optionally ADMIN_TOKEN
 docker compose up -d --build
-curl -s localhost:8080 | head -5   # sanity check it's actually serving
+curl -s localhost:8085 | head -5   # sanity check it's actually serving
 ```
 
 (Adjust the port here and in `nginx-reverse-proxy.conf` to whatever you map in `docker-compose.yml`.)
