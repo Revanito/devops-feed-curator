@@ -136,12 +136,15 @@ def get_curated(limit: int = 100, kind: str | None = None) -> list[sqlite3.Row]:
         if kind is None:
             return conn.execute(
                 """SELECT * FROM items WHERE classified = 1 AND keep = 1
-                   ORDER BY published DESC LIMIT ?""",
+                   ORDER BY seen_at DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
         return conn.execute(
+            # Not ORDER BY published: that's a free-form feed string (RFC 822 or ISO), so SQLite
+            # sorts it by weekday name. seen_at is our own ISO timestamp; callers re-sort by the
+            # parsed published date.
             """SELECT * FROM items WHERE classified = 1 AND keep = 1 AND kind = ?
-               ORDER BY published DESC LIMIT ?""",
+               ORDER BY seen_at DESC LIMIT ?""",
             (kind, limit),
         ).fetchall()
 
@@ -219,7 +222,9 @@ def set_meta(key: str, value: str) -> None:
         )
 
 
-def counts() -> dict[str, int]:
+def counts(kind: str = "news") -> dict[str, int]:
+    """Per-kind, so the News page's "shown / filtered out" numbers aren't inflated by the thousands
+    of eBay listings the deals pipelines reject."""
     with get_conn() as conn:
         row = conn.execute(
             """SELECT
@@ -227,6 +232,7 @@ def counts() -> dict[str, int]:
                    SUM(CASE WHEN classified = 0 THEN 1 ELSE 0 END) AS pending,
                    SUM(CASE WHEN classified = 1 AND keep = 1 THEN 1 ELSE 0 END) AS kept,
                    SUM(CASE WHEN classified = 1 AND keep = 0 THEN 1 ELSE 0 END) AS dropped
-               FROM items"""
+               FROM items WHERE kind = ?""",
+            (kind,),
         ).fetchone()
         return dict(row)

@@ -44,6 +44,13 @@ async def poll_and_classify() -> None:
         items = await asyncio.to_thread(feeds.fetch_all)
         reddit_items = await asyncio.to_thread(feeds.fetch_reddit)
         items += reddit_items
+        # Some feeds keep weeks-old posts (e.g. Microsoft Security Blog). Without this, an item
+        # deleted by the age cleanup below gets re-inserted as "new" next poll, re-classified,
+        # and shown again forever.
+        fresh = [i for i in items if _published_dt(i) is None or _is_recent(i, settings.news_max_age_days)]
+        if len(fresh) < len(items):
+            log.info("skipped %d feed items older than %d days", len(items) - len(fresh), settings.news_max_age_days)
+        items = fresh
         inserted = db.insert_new_items(items)
         log.info("fetched %d items (%d reddit), %d new", len(items), len(reddit_items), inserted)
 
@@ -117,17 +124,28 @@ def _split_columns(items: list) -> tuple[list, list, list]:
     return reddit, blogs, homelab
 
 
-def _is_recent(item, days: int) -> bool:
+def _published_dt(item) -> datetime | None:
+    """Feeds use a mix of RFC 822 and ISO dates, so parse them rather than compare raw strings."""
     published = item["published"]
     if not published:
-        return False
+        return None
     try:
         dt = date_parser.parse(published)
-    except (ValueError, TypeError):
-        return False
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - dt <= timedelta(days=days)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _is_recent(item, days: int) -> bool:
+    dt = _published_dt(item)
+    return dt is not None and datetime.now(timezone.utc) - dt <= timedelta(days=days)
+
+
+_EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _newest_first(items: list) -> list:
+    return sorted(items, key=lambda item: _published_dt(item) or _EPOCH, reverse=True)
 
 
 def _refresh_available() -> bool:
@@ -163,8 +181,8 @@ def _nav_context() -> dict:
 
 @app.get("/")
 def index(request: Request):
-    items = db.get_curated(limit=300, kind="news")
-    stats = db.counts()
+    items = _newest_first(db.get_curated(limit=300, kind="news"))
+    stats = db.counts(kind="news")
     reddit_items, blog_items, homelab_items = _split_columns(items)
     must_read_items = [item for item in items if item["critical"] and _is_recent(item, days=7)][:8]
     cve_items = [item for item in items if (item["tag"] or "").lower() == "cve"][:3]

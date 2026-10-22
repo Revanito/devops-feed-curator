@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from pathlib import Path
 
 import httpx
@@ -43,7 +44,7 @@ def _build_deals_user_prompt(batch: list) -> str:
     return "\n".join(lines)
 
 
-async def _classify(system_prompt: str, batch: list, build_prompt) -> dict[str, dict]:
+async def _classify(system_prompt: str, batch: list, build_prompt, model: str) -> dict[str, dict]:
     if not batch:
         return {}
 
@@ -51,7 +52,7 @@ async def _classify(system_prompt: str, batch: list, build_prompt) -> dict[str, 
     url = f"{settings.one_min_base_url}/api/chat-with-ai"
     body = {
         "type": "UNIFY_CHAT_WITH_AI",
-        "model": settings.model_classifier,
+        "model": model,
         "promptObject": {"prompt": prompt},
     }
     headers = {"API-KEY": settings.one_min_api_key, "Content-Type": "application/json"}
@@ -61,7 +62,7 @@ async def _classify(system_prompt: str, batch: list, build_prompt) -> dict[str, 
             resp = await client.post(url, headers=headers, json=body)
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            log.error("1min.ai classify request failed: %s", exc)
+            log.error("1min.ai classify request failed (model %s): %s", model, exc)
             return {}
 
     try:
@@ -118,12 +119,12 @@ async def _classify(system_prompt: str, batch: list, build_prompt) -> dict[str, 
     return results
 
 
-async def classify_batch(batch: list) -> dict[str, dict]:
-    return await _classify(_SYSTEM_PROMPT, batch, _build_user_prompt)
+async def classify_batch(batch: list, model: str) -> dict[str, dict]:
+    return await _classify(_SYSTEM_PROMPT, batch, _build_user_prompt, model)
 
 
-async def classify_deals_batch(batch: list) -> dict[str, dict]:
-    results = await _classify(_DEALS_SYSTEM_PROMPT, batch, _build_deals_user_prompt)
+async def classify_deals_batch(batch: list, model: str) -> dict[str, dict]:
+    results = await _classify(_DEALS_SYSTEM_PROMPT, batch, _build_deals_user_prompt, model)
     # The LLM sometimes extracts a CPU model correctly (from context beyond the title/aspect text
     # ebay.py's own deterministic gate ever saw - e.g. recognizing "Lenovo M93p" as an i7-4790 vPro
     # box) but doesn't consistently apply its own keep/drop rule to what it just extracted. Re-check
@@ -134,29 +135,110 @@ async def classify_deals_batch(batch: list) -> dict[str, dict]:
     return results
 
 
+async def classify_ram_batch(batch: list, model: str) -> dict[str, dict]:
+    results = await _classify(_RAM_SYSTEM_PROMPT, batch, _build_deals_user_prompt, model)
+    # Same deterministic re-check pattern as classify_deals_batch: re-verify DDR generation
+    # against the actual listing title after the fact, rather than trust that the LLM's keep
+    # decision and its own "tag" output stayed consistent with what the title actually says.
+    titles = {row["id"]: row["title"] for row in batch}
+    for item_id, r in results.items():
+        if r["keep"] and ebay.ram_disqualify_reason(titles.get(item_id, "")):
+            r["keep"] = False
+    return results
+
+
+# A harmless item used to tell "this model is down / rejecting everything" apart from "one item in
+# this batch tripped moderation". Has every column any of the prompt builders reads.
+_CANARY = {
+    "id": "__canary__", "source": "canary", "title": "Docker Engine 27.1 released",
+    "summary": "Maintenance release with bug fixes.", "price": None, "shipping": None, "currency": "",
+}
+
+# Models whose canary failed recently, with the time they failed - skipped until _MODEL_DOWN_SECONDS
+# have passed, so a dead primary doesn't cost two failed calls on every single batch of a poll.
+_MODEL_DOWN_SECONDS = 3600
+_down_since: dict[str, float] = {}
+
+
+def _models() -> list[str]:
+    """Primary first, then the fallback (if set and different)."""
+    models = [settings.model_classifier]
+    fallback = settings.model_classifier_fallback.strip()
+    if fallback and fallback not in models:
+        models.append(fallback)
+    return models
+
+
+def _is_down(model: str) -> bool:
+    since = _down_since.get(model)
+    if since is None:
+        return False
+    if time.monotonic() - since >= _MODEL_DOWN_SECONDS:
+        del _down_since[model]
+        return False
+    return True
+
+
 async def _isolating_failures(classify_fn, batch: list) -> dict[str, dict]:
-    """Classify a batch, bisecting on failure so one bad item (e.g. one that trips 1min.ai's
-    own content moderation and gets the whole batch rejected with no per-item detail) can't
-    block every other item in it. A single item that still fails alone gets quarantined -
-    dropped and marked classified - so it stops burning a retry every poll forever."""
+    """Classify a batch with the primary model, falling back to MODEL_CLASSIFIER_FALLBACK if the
+    primary is down (retired model ID, provider outage...).
+
+    When a model fails a batch, a known-harmless canary item is sent to it on its own:
+    - canary fails too: the model itself is down - mark it down for an hour, try the next model.
+    - canary works: the model is fine and one item in the batch is the problem (e.g. it trips
+      1min.ai's content moderation, which rejects the whole batch with no per-item detail) -
+      bisect with that model to isolate it. A single item that still fails alone gets
+      quarantined (dropped and marked classified) so it stops burning a retry every poll.
+    If every model is down, return nothing so the batch stays pending for next poll, instead of
+    quarantining every item as dropped."""
     if not batch:
         return {}
 
-    results = await classify_fn(batch)
-    if results:
+    for model in _models():
+        if _is_down(model):
+            continue
+        results = await classify_fn(batch, model)
+        if results:
+            if model != settings.model_classifier:
+                log.warning("classified a batch of %d with fallback model %s", len(batch), model)
+            return results
+
+        if not await classify_fn([_CANARY], model):
+            log.error("classifier canary failed on model %s - marking it down for %ds",
+                      model, _MODEL_DOWN_SECONDS)
+            _down_since[model] = time.monotonic()
+            continue
+
+        results = await _bisect(classify_fn, batch, model, already_failed=True)
+        # Belt and braces: if every single item ended up quarantined, that's an outage that started
+        # right after the canary passed, not N separately-bad items - keep them all pending.
+        if all(r["tag"] == "unclassifiable" for r in results.values()):
+            log.error("every item in a batch of %d failed alone on %s - treating as outage, leaving pending",
+                      len(batch), model)
+            return {}
         return results
+
+    log.error("all classifier models down (%s) - leaving %d items pending", ", ".join(_models()), len(batch))
+    return {}
+
+
+async def _bisect(classify_fn, batch: list, model: str, already_failed: bool = False) -> dict[str, dict]:
+    if not already_failed:
+        results = await classify_fn(batch, model)
+        if results:
+            return results
 
     if len(batch) == 1:
         item = batch[0]
-        retry = await classify_fn(batch)
+        retry = await classify_fn(batch, model)
         if retry:
             return retry
         log.warning("quarantining unclassifiable item %s (%s)", item["id"], item["title"][:80])
         return {item["id"]: {"keep": False, "tag": "unclassifiable", "critical": False}}
 
     mid = len(batch) // 2
-    left = await _isolating_failures(classify_fn, batch[:mid])
-    right = await _isolating_failures(classify_fn, batch[mid:])
+    left = await _bisect(classify_fn, batch[:mid], model)
+    right = await _bisect(classify_fn, batch[mid:], model)
     return {**left, **right}
 
 
@@ -166,18 +248,6 @@ async def classify_batch_isolating_failures(batch: list) -> dict[str, dict]:
 
 async def classify_deals_batch_isolating_failures(batch: list) -> dict[str, dict]:
     return await _isolating_failures(classify_deals_batch, batch)
-
-
-async def classify_ram_batch(batch: list) -> dict[str, dict]:
-    results = await _classify(_RAM_SYSTEM_PROMPT, batch, _build_deals_user_prompt)
-    # Same deterministic re-check pattern as classify_deals_batch: re-verify DDR generation
-    # against the actual listing title after the fact, rather than trust that the LLM's keep
-    # decision and its own "tag" output stayed consistent with what the title actually says.
-    titles = {row["id"]: row["title"] for row in batch}
-    for item_id, r in results.items():
-        if r["keep"] and ebay.ram_disqualify_reason(titles.get(item_id, "")):
-            r["keep"] = False
-    return results
 
 
 async def classify_ram_batch_isolating_failures(batch: list) -> dict[str, dict]:

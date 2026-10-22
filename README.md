@@ -31,7 +31,7 @@ Five pages, sharing one poll/classify cycle and one nav bar (top-right, on every
 - Once a day at `POLL_HOUR:POLL_MINUTE` (default 00:00 server time), the app fetches all feeds except
   Reddit (which runs on its own separate, much longer clock - see "Reddit is special-cased" below),
   stores new items in a local SQLite DB (`data/feeds.db`), then sends unclassified items in batches to
-  a cheap LLM (`gpt-4o-mini` via 1min.ai, same API key/provider as
+  a cheap LLM (`gpt-4o-mini` via 1min.ai, with `us.anthropic.claude-haiku-5-5` as an automatic fallback, same API key/provider as
   [discord-1min-proxy](../discord-1min-proxy)) asking it to keep/drop each one, tag it with a topic, and
   flag it `critical` if it's a big, broadly-impactful incident (major outages, actively-exploited
   zero-days, CrowdStrike-style events) rather than routine news.
@@ -39,7 +39,7 @@ Five pages, sharing one poll/classify cycle and one nav bar (top-right, on every
   that column regardless of source) — newest first within each. Admin-relevant IT world news lands in
   Blogs & DevOps News, tagged accordingly (e.g. `microsoft`, `outage`, `security`).
 - A **Must Read** banner sits above the columns for anything flagged `critical` (capped at 8, newest
-  first, auto-dropping out after 7 days — items stay in their normal column either way), so a major
+  first by the feed's parsed published date, auto-dropping out after 7 days — items stay in their normal column either way), so a major
   incident doesn't get lost in the normal flow.
 - A **Latest CVEs** section below that shows the 3 most recent items tagged `cve` (genuine vulnerability
   disclosures on major products, as opposed to generic `security` news) — no dedicated CVE feed, just a
@@ -62,6 +62,18 @@ Five pages, sharing one poll/classify cycle and one nav bar (top-right, on every
   which single item is the problem. A lone item is retried once more before being quarantined (marked
   classified, dropped, tagged `unclassifiable`) — this avoids permanently dropping a perfectly fine item
   that just happened to hit a transient API blip while alone in a bisected batch of one.
+  Before bisecting, a harmless canary item is classified on its own: if *that* fails too, the model
+  itself is down (retired model ID, provider outage), so the app marks it down for an hour and retries
+  the batch on `MODEL_CLASSIFIER_FALLBACK` (default `us.anthropic.claude-haiku-5-5`, deliberately a
+  different provider than the `gpt-4o-mini` primary). If every model is down (or 1min.ai itself / your
+  credits are), the batch is left pending for next poll instead of every item being quarantined.
+  (Before this guard, an API outage silently dropped every new item.) Fallback use is logged as a
+  warning, so `docker compose logs | grep fallback` shows when the primary needs replacing.
+- The News page's "shown / filtered out" counters only count news items, not eBay listings. Feed items
+  whose published date is already older than `NEWS_MAX_AGE_DAYS` are skipped on fetch, so the age cleanup
+  doesn't delete them only for them to be re-inserted as "new" next poll.
+- To rescue news wrongly dropped by an outage or an older prompt, re-queue the last N days (default 4) of
+  dropped news and refresh: `docker compose exec feed-curator python requeue_news.py 4`.
 
 ### Homelab Deals (`/deals`, `/deals/beyond`)
 
