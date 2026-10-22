@@ -62,7 +62,12 @@ async def _classify(system_prompt: str, batch: list, build_prompt, model: str) -
             resp = await client.post(url, headers=headers, json=body)
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            log.error("1min.ai classify request failed (model %s): %s", model, exc)
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403):
+                # Not a model problem - the fallback can't help, every model will get the same answer.
+                log.error("1min.ai rejected the API key (HTTP %d) - check ONE_MIN_API_KEY in .env",
+                          exc.response.status_code)
+            else:
+                log.error("1min.ai classify request failed (model %s): %s", model, exc)
             return {}
 
     try:
