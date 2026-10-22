@@ -58,6 +58,9 @@ async def poll_and_classify() -> None:
         if deleted:
             log.info("deleted %d news items older than %d days", deleted, settings.news_max_age_days)
 
+        if settings.ebay_client_id and settings.ebay_client_secret:
+            await asyncio.to_thread(ebay.refresh_gbp_rate)
+
         log.info("polling eBay deals...")
         deal_items = await asyncio.to_thread(ebay.fetch_all)
         deal_inserted = db.insert_new_items(deal_items)

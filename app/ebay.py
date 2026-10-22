@@ -25,9 +25,36 @@ _SOURCE_MARKETPLACE_RE = re.compile(r"eBay \((\w+)\)")
 _MARKETPLACE_CURRENCY = {"EBAY_GB": "GBP"}
 
 
+# Daily ECB reference rate via Frankfurter (free, no key). Fetched once per poll by
+# refresh_gbp_rate(); until then, or if the fetch fails, GBP_TO_EUR_RATE from settings is used.
+_FX_URL = "https://api.frankfurter.dev/v1/latest"
+_live_gbp_rate: float | None = None
+
+
+def refresh_gbp_rate() -> None:
+    global _live_gbp_rate
+    try:
+        resp = httpx.get(_FX_URL, params={"base": "GBP", "symbols": "EUR"}, timeout=10.0, follow_redirects=True)
+        resp.raise_for_status()
+        rate = float(resp.json()["rates"]["EUR"])
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        log.warning("GBP->EUR rate fetch failed, using %s: %s", _gbp_to_eur_rate(), exc)
+        return
+    # Guard against a garbage response silently mispricing every UK listing.
+    if not 0.5 < rate < 2.5:
+        log.warning("GBP->EUR rate %s looks wrong, ignoring it", rate)
+        return
+    _live_gbp_rate = rate
+    log.info("GBP->EUR rate: %.4f", rate)
+
+
+def _gbp_to_eur_rate() -> float:
+    return _live_gbp_rate or settings.gbp_to_eur_rate
+
+
 def _to_eur(amount: float, currency: str) -> float:
     if currency == "GBP":
-        return amount * settings.gbp_to_eur_rate
+        return amount * _gbp_to_eur_rate()
     return amount
 
 # Marketplaces whose listings ship from outside the EU customs union relative to this app's
@@ -88,7 +115,9 @@ _SIZE_WITH_UNIT_RE = re.compile(r"(\d+)\s*(gb|go|tb|to)\b", re.IGNORECASE)
 _BARE_NUMBER_RE = re.compile(r"(\d+)")
 
 
-_INTEL_MODEL_RE = re.compile(r"\bi([3579])[\s-](\d{3,5})[a-z]{0,2}\b", re.IGNORECASE)
+# The optional trailing digit covers mobile suffixes like "1135G7"/"1115G4" - without it the
+# word boundary after "G" fails and the whole model goes unrecognized.
+_INTEL_MODEL_RE = re.compile(r"\bi([3579])[\s-](\d{3,5})[a-z]{0,2}\d?\b", re.IGNORECASE)
 # eBay listings often name the generation in words instead of a model number ("Intel Core
 # i5-7th Gen") - a separate pattern since there's no digit-count trick to lean on here.
 _INTEL_WORDED_GEN_RE = re.compile(r"\bi([3579])[\s-](\d{1,2})(?:st|nd|rd|th)\s*gen", re.IGNORECASE)
@@ -96,7 +125,8 @@ _INTEL_WORDED_GEN_RE = re.compile(r"\bi([3579])[\s-](\d{1,2})(?:st|nd|rd|th)\s*g
 # "Ultra 5 245K" (Series 2, Arrow Lake/Lunar Lake); the leading digit of the 3-digit suffix is
 # the series. Captured separately from family since Ultra's HT story doesn't depend on tier at all.
 _CORE_ULTRA_RE = re.compile(r"core\s*ultra\s*[579]\s*(\d)\d{2}[a-z]{0,2}\b", re.IGNORECASE)
-_RYZEN_MODEL_RE = re.compile(r"ryzen\s*[3579]\s*[\s-]?(\d{4})", re.IGNORECASE)
+# "PRO" variants ("Ryzen 5 PRO 2400GE") are common in refurb business mini PCs.
+_RYZEN_MODEL_RE = re.compile(r"ryzen\s*[3579]\s*(?:pro\s*)?[\s-]?(\d{4})", re.IGNORECASE)
 # HP explicitly encodes chassis generation as "G<n>" right after the model number (EliteDesk/
 # ProDesk 400/600/700/800 G1 through G6+) - G1-G3 are pre-2018 DDR3-era Haswell/Ivy Bridge chassis
 # regardless of what CPU ended up in them, so this catches listings a CPU-model check would miss.
@@ -569,7 +599,7 @@ def fetch_all() -> list[dict]:
                         summary = f"{summary} | shipping cost shown at checkout".strip(" |")
                     if native_currency != "EUR":
                         summary = (f"{summary} | converted from {item_price + (shipping or 0):.0f} "
-                                   f"{native_currency} at ~{settings.gbp_to_eur_rate:.2f} EUR/GBP").strip(" |")
+                                   f"{native_currency} at ~{_gbp_to_eur_rate():.2f} EUR/GBP").strip(" |")
                     if marketplace in _CROSS_BORDER_MARKETPLACES:
                         summary = f"{summary} | ships from UK - possible import VAT/duty on delivery".strip(" |")
                     if cpu_warning:
@@ -644,7 +674,7 @@ def fetch_ram_all() -> list[dict]:
                         summary = f"{summary} | shipping cost shown at checkout".strip(" |")
                     if native_currency != "EUR":
                         summary = (f"{summary} | converted from {item_price + (shipping or 0):.0f} "
-                                   f"{native_currency} at ~{settings.gbp_to_eur_rate:.2f} EUR/GBP").strip(" |")
+                                   f"{native_currency} at ~{_gbp_to_eur_rate():.2f} EUR/GBP").strip(" |")
                     if marketplace in _CROSS_BORDER_MARKETPLACES:
                         summary = f"{summary} | ships from UK - possible import VAT/duty on delivery".strip(" |")
 

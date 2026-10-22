@@ -57,8 +57,7 @@ class Settings(BaseSettings):
     ram_max_price_eur: int = 200
     ram_extended_max_price_eur: int = 500
 
-    # Baseline GBP->EUR rate, not live-fetched - update this occasionally by hand if it drifts far
-    # from reality. Good enough for "is this roughly under budget", not for actual accounting.
+    # Fallback GBP->EUR rate, only used if the daily live rate fetch (ebay.refresh_gbp_rate) fails.
     gbp_to_eur_rate: float = 1.17
 
     # How many already-kept deal listings to re-check against eBay per poll, to catch ones that
