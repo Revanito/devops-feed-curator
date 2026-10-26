@@ -9,15 +9,23 @@
 </head>
 <body>
 {% import '_macros.html' as m %}
+{% set card_action = ('restore' if show_hidden else 'dismiss') if is_admin else '' %}
 <header>
   <div class="header-top">
     <h1>Security Watch</h1>
     {{ m.nav('news', deals_label, beyond_label, ram_label, ram_beyond_label) }}
   </div>
   <div class="stats">
-    <span class="count-critical">{{ critical_items|length }} critical</span>
-    <span class="count-high">{{ high_items|length }} high</span>
+    {% if show_hidden %}
+    <span><strong>Hidden items</strong> - {{ critical_items|length + high_items|length }} in the last {{ days }} days</span>
+    <a class="header-link" href="/">← Back to Security</a>
+    {% else %}
+    <span class="count-critical"><span id="count-critical">{{ critical_items|length }}</span> critical</span>
+    <span class="count-high"><span id="count-high">{{ high_items|length }}</span> high</span>
     <span>last {{ days }} days</span>
+    {% if is_admin %}<a class="header-link" href="/?view=hidden">Hidden (<span id="count-hidden">{{ hidden_count }}</span>)</a>
+    {% elif login_enabled %}<a class="header-link" href="/login">Log in to hide items</a>{% endif %}
+    {% endif %}
     <span>{{ stats.pending or 0 }} pending review</span>
     {% for s in key_sources %}
     <span class="{{ 'source-ok' if s.ok else 'source-failing' }}">{{ s.name }}: {{ 'ok' if s.ok else 'FAILING' }} (last ok {{ s.last_ok }})</span>
@@ -52,10 +60,10 @@
   <h2>🔴 Critical <span class="section-hint">actively exploited, or CVSS 9.0+ in your stack</span></h2>
   {% if critical_items %}
   <div class="severity-grid">
-    {% for item in critical_items %}{{ m.card(item, variant='critical') }}{% endfor %}
+    {% for item in critical_items %}{{ m.card(item, variant='critical', action=card_action) }}{% endfor %}
   </div>
   {% else %}
-  <p class="empty">Nothing critical in the last {{ days }} days.</p>
+  <p class="empty">{{ "Nothing hidden here." if show_hidden else "Nothing critical in the last %d days."|format(days) }}</p>
   {% endif %}
 </section>
 
@@ -63,14 +71,35 @@
   <h2>🟠 High <span class="section-hint">CVSS 7.0-8.9 in your stack, or exploited elsewhere</span></h2>
   {% if high_items %}
   <div class="severity-grid">
-    {% for item in high_items %}{{ m.card(item, variant='high') }}{% endfor %}
+    {% for item in high_items %}{{ m.card(item, variant='high', action=card_action) }}{% endfor %}
   </div>
   {% else %}
-  <p class="empty">Nothing high in the last {{ days }} days.</p>
+  <p class="empty">{{ "Nothing hidden here." if show_hidden else "Nothing high in the last %d days."|format(days) }}</p>
   {% endif %}
 </section>
 
 <script>
+  // Hide/restore without a page reload; falls back to a normal form post if this fails.
+  document.querySelectorAll('.card-action').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var card = form.closest('.card');
+      fetch(form.action, {method: 'POST', headers: {'X-Requested-With': 'fetch'}, credentials: 'same-origin'})
+        .then(function (r) {
+          if (r.status === 403) { window.location = '/login'; return; }
+          if (!r.ok) { form.submit(); return; }
+          var section = card.closest('.severity-section');
+          var counter = section && document.getElementById(
+            section.classList.contains('critical-section') ? 'count-critical' : 'count-high');
+          if (counter) counter.textContent = Math.max(0, parseInt(counter.textContent, 10) - 1);
+          var hidden = document.getElementById('count-hidden');
+          if (hidden) hidden.textContent = parseInt(hidden.textContent, 10) + 1;
+          card.remove();
+        })
+        .catch(function () { form.submit(); });
+    });
+  });
+
   (function () {
     var selected = new Set();
     var buttons = document.querySelectorAll('.filter-tag');

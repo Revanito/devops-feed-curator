@@ -281,3 +281,84 @@ def test_nvd_cursor_only_advances_on_success(temp_db, monkeypatch):
     items = advisories.fetch_nvd(client, STACK)
     assert [i["cve"] for i in items] == ["CVE-2026-5"]
     assert db.get_meta("nvd_last_mod_end") is not None
+
+
+# ---------- dismissing ----------
+
+def _client(monkeypatch, token="s3cret"):
+    monkeypatch.chdir(APP_DIR)
+    monkeypatch.setattr(settings, "admin_token", token)
+    import main
+    from fastapi.testclient import TestClient
+    return TestClient(main.app)
+
+
+def test_dismiss_requires_login(temp_db, monkeypatch):
+    client = _client(monkeypatch)
+    db.upsert_advisories([_adv("CVE-2026-3333", "critical", title="keep me")])
+    item_id = advisories.advisory_id("CVE-2026-3333")
+    r = client.post(f"/dismiss/{item_id}", headers={"X-Requested-With": "fetch"})
+    assert r.status_code == 403
+    assert "keep me" in client.get("/").text
+    assert "Not relevant - hide" not in client.get("/").text
+
+
+def test_dismiss_disabled_without_token(temp_db, monkeypatch):
+    client = _client(monkeypatch, token="")
+    db.upsert_advisories([_adv("CVE-2026-3334", "critical")])
+    r = client.post(f"/dismiss/{advisories.advisory_id('CVE-2026-3334')}",
+                    headers={"X-Requested-With": "fetch", "X-Admin-Token": ""})
+    assert r.status_code == 403
+    assert client.post("/login", content="token=", headers={"Content-Type": "application/x-www-form-urlencoded"},
+                       follow_redirects=False).headers["location"] == "/login?error=1"
+
+
+def test_login_dismiss_restore(temp_db, monkeypatch):
+    client = _client(monkeypatch)
+    db.upsert_advisories([_adv("CVE-2026-4444", "high", tag="Grafana", title="not my grafana")])
+    item_id = advisories.advisory_id("CVE-2026-4444")
+
+    bad = client.post("/login", content="token=nope", follow_redirects=False,
+                      headers={"Content-Type": "application/x-www-form-urlencoded"})
+    assert bad.headers["location"] == "/login?error=1"
+    ok = client.post("/login", content="token=s3cret", follow_redirects=False,
+                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+    assert ok.headers["location"] == "/"
+    assert "s3cret" not in ok.headers["set-cookie"]  # cookie holds a hash, not the token
+
+    page = client.get("/").text
+    assert "not my grafana" in page and "Not relevant - hide" in page
+
+    assert client.post(f"/dismiss/{item_id}", headers={"X-Requested-With": "fetch"}).json() == {"ok": True}
+    assert "not my grafana" not in client.get("/").text
+    hidden = client.get("/?view=hidden").text
+    assert "not my grafana" in hidden and "Restore" in hidden
+
+    client.post(f"/restore/{item_id}", headers={"X-Requested-With": "fetch"})
+    assert "not my grafana" in client.get("/").text
+
+
+def test_hidden_view_needs_login(temp_db, monkeypatch):
+    client = _client(monkeypatch)
+    db.upsert_advisories([_adv("CVE-2026-5555", "high", title="secretly hidden")])
+    db.set_dismissed(advisories.advisory_id("CVE-2026-5555"), True)
+    assert "secretly hidden" not in client.get("/?view=hidden").text
+
+
+def test_dismissed_stays_hidden_unless_escalated(temp_db):
+    db.upsert_advisories([_adv("CVE-2026-6666", "high")])
+    db.set_dismissed(advisories.advisory_id("CVE-2026-6666"), True)
+    # Re-reported with nothing new: stays hidden.
+    db.upsert_advisories([_adv("CVE-2026-6666", "high")])
+    assert _row("CVE-2026-6666")["dismissed"] == 1
+    # Now actively exploited: comes back.
+    db.upsert_advisories([_adv("CVE-2026-6666", "critical", source="CISA KEV", exploited=True)])
+    assert _row("CVE-2026-6666")["dismissed"] == 0
+
+
+def test_dismiss_news_item(temp_db):
+    db.insert_new_items([{"id": "news1", "source": "x", "title": "Exchange zero-day", "link": "l"}])
+    db.apply_classifications({"news1": {"keep": True, "tag": "other", "critical": True, "severity": "critical"}})
+    assert db.set_dismissed("news1", True)
+    assert db.get_security_items(days=7) == []
+    assert not db.set_dismissed("does-not-exist", True)

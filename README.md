@@ -41,6 +41,8 @@ Every hour (`NEWS_POLL_MINUTES`), the app checks two kinds of sources:
 
 The top of the page shows whether CISA KEV and NVD are working. A red banner lists every source whose last fetch failed, so a dead feed can't look like a quiet week.
 
+**Hiding items that don't concern you:** set `ADMIN_TOKEN` in `.env`, open `/login` once and enter it. Each card then has a **Not relevant - hide** button. Hidden items are listed under **Hidden (N)** in the header, where you can restore them. A hidden CVE comes back on its own if it gets worse: High turning Critical, or added to CISA's actively exploited list. Without `ADMIN_TOKEN`, nobody can hide anything, so visitors to a public page can't hide CVEs from you.
+
 **Editing your stack:** each product in `stack.yaml` has NVD product IDs (`cpe`, exact) and description patterns (`keywords`, which catch CVEs NVD hasn't analyzed yet). Changes apply on the next poll. The file explains each field.
 
 ### Deals pages and the LLM
@@ -76,7 +78,7 @@ Everything is set in `.env`. [`.env.example`](.env.example) explains each settin
 | `NEWS_POLL_MINUTES` | `60` | How often the Security page's sources are checked. |
 | `NVD_API_KEY` | — | Optional, free. Speeds up large NVD fetches. |
 | `POLL_HOUR` / `POLL_MINUTE` | `0` / `0` | When the daily deals fetch runs. |
-| `ADMIN_TOKEN` | — | Lets you skip the refresh cooldown (see below). |
+| `ADMIN_TOKEN` | — | Lets you hide items on the Security page, and skip the refresh cooldown (see below). |
 
 ## Customizing
 

@@ -1,15 +1,17 @@
 import asyncio
 import hashlib
+import hmac
 import logging
 from datetime import datetime, timedelta, timezone
 from math import ceil
+from urllib.parse import parse_qs
 
 from dateutil import parser as date_parser
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, FastAPI, Header
 from fastapi.requests import Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -226,9 +228,72 @@ def _ago(iso: str | None) -> str:
     return f"{minutes // 1440}d ago"
 
 
+_ADMIN_COOKIE = "feed_admin"
+
+
+def _admin_cookie_value() -> str:
+    # The cookie holds a hash of ADMIN_TOKEN, not the token itself.
+    return hashlib.sha256(f"feed-admin:{settings.admin_token}".encode()).hexdigest()
+
+
+def _is_admin(request: Request) -> bool:
+    """Dismissing hides vulnerabilities, so on a page that may be public it needs ADMIN_TOKEN -
+    either the X-Admin-Token header or the cookie set by /login. No token configured = nobody."""
+    if not settings.admin_token:
+        return False
+    header = request.headers.get("x-admin-token", "")
+    if header and hmac.compare_digest(header, settings.admin_token):
+        return True
+    return hmac.compare_digest(request.cookies.get(_ADMIN_COOKIE, ""), _admin_cookie_value())
+
+
+@app.get("/login")
+def login_page(request: Request, error: int = 0):
+    return templates.TemplateResponse("login.html", {
+        "request": request, "error": bool(error), "enabled": bool(settings.admin_token),
+        "css_version": _css_version, "favicon_version": _favicon_version,
+    })
+
+
+@app.post("/login")
+async def login(request: Request):
+    # Parsed by hand: FastAPI's Form() needs python-multipart, not worth a dependency for one field.
+    token = parse_qs((await request.body()).decode(errors="replace")).get("token", [""])[0]
+    if not settings.admin_token or not hmac.compare_digest(token, settings.admin_token):
+        return RedirectResponse("/login?error=1", status_code=303)
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie(_ADMIN_COOKIE, _admin_cookie_value(), max_age=365 * 24 * 3600,
+                    httponly=True, samesite="strict")
+    return resp
+
+
+async def _set_dismissed(request: Request, item_id: str, dismissed: bool):
+    wants_json = request.headers.get("x-requested-with") == "fetch"
+    if not _is_admin(request):
+        if wants_json:
+            return JSONResponse({"ok": False, "error": "not logged in"}, status_code=403)
+        return RedirectResponse("/login", status_code=303)
+    found = db.set_dismissed(item_id, dismissed)
+    if wants_json:
+        return JSONResponse({"ok": found}, status_code=200 if found else 404)
+    return RedirectResponse("/?view=hidden" if not dismissed else "/", status_code=303)
+
+
+@app.post("/dismiss/{item_id}")
+async def dismiss(request: Request, item_id: str):
+    return await _set_dismissed(request, item_id, True)
+
+
+@app.post("/restore/{item_id}")
+async def restore(request: Request, item_id: str):
+    return await _set_dismissed(request, item_id, False)
+
+
 @app.get("/")
-def index(request: Request):
-    items = db.get_security_items(days=settings.news_max_age_days)
+def index(request: Request, view: str = ""):
+    is_admin = _is_admin(request)
+    show_hidden = view == "hidden" and is_admin
+    items = db.get_security_items(days=settings.news_max_age_days, dismissed=show_hidden)
     # Red always above orange. Red: actively exploited first. Orange: your stack first, then
     # exploited-elsewhere. Then newest flagged first (the query sorts by seen_at; sorted() is stable).
     critical_items = sorted((i for i in items if i["severity"] == "critical"), key=lambda i: not i["exploited"])
@@ -241,6 +306,8 @@ def index(request: Request):
         "critical_items": critical_items, "high_items": high_items,
         "failing_sources": failing_sources, "key_sources": key_sources,
         "days": settings.news_max_age_days,
+        "is_admin": is_admin, "show_hidden": show_hidden, "login_enabled": bool(settings.admin_token),
+        "hidden_count": db.count_dismissed(settings.news_max_age_days) if is_admin else 0,
         "all_tags": all_tags, "css_version": _css_version, "favicon_version": _favicon_version,
         **_nav_context(),
     })

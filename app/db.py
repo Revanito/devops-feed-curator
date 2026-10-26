@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS items (
     kit TEXT,
     severity TEXT,
     cvss REAL,
-    exploited INTEGER NOT NULL DEFAULT 0
+    exploited INTEGER NOT NULL DEFAULT 0,
+    dismissed INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_items_keep_published ON items (keep, published);
 CREATE TABLE IF NOT EXISTS meta (
@@ -73,6 +74,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE items ADD COLUMN cvss REAL")
     if "exploited" not in columns:
         conn.execute("ALTER TABLE items ADD COLUMN exploited INTEGER NOT NULL DEFAULT 0")
+    if "dismissed" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0")
 
     # One-time backfill: items ingested before feeds.py stripped HTML from summaries can have
     # raw/mid-tag-truncated markup baked into this column - which was making 1min.ai reject the
@@ -260,7 +263,7 @@ def upsert_advisories(advisories: list[dict]) -> tuple[int, int]:
     Merging: the worse severity wins, "exploited" sticks once set, KEV's wording (which says what
     to do) wins over NVD's, and a real product tag wins over "other". An escalation - High turning
     Critical, or a CVE newly added to KEV - resets seen_at so it comes back to the top of the page
-    even if it had aged off."""
+    even if it had aged off, and un-dismisses it: "not my problem" was decided on less information."""
     now = datetime.now(timezone.utc).isoformat()
     new = escalated = 0
     with get_conn() as conn:
@@ -302,25 +305,41 @@ def upsert_advisories(advisories: list[dict]) -> tuple[int, int]:
             conn.execute(
                 """UPDATE items SET source = ?, title = ?, summary = ?, published = ?, tag = ?,
                        severity = ?, critical = ?, cvss = ?, exploited = ?, seen_at = ?,
+                       dismissed = CASE WHEN ? THEN 0 ELSE dismissed END,
                        classified = 1, keep = 1 WHERE id = ?""",
                 (source, title, summary, published, tag, severity, 1 if severity == "critical" else 0,
-                 cvss, 1 if exploited else 0, now if is_escalation else row["seen_at"], a["id"]),
+                 cvss, 1 if exploited else 0, now if is_escalation else row["seen_at"],
+                 1 if is_escalation else 0, a["id"]),
             )
     return new, escalated
 
 
-def get_security_items(days: int, limit: int = 500) -> list[sqlite3.Row]:
+def get_security_items(days: int, limit: int = 500, dismissed: bool = False) -> list[sqlite3.Row]:
     """Everything flagged Critical or High (news and KEV/NVD rows) first seen - or escalated -
-    in the last `days` days, newest first."""
+    in the last `days` days, newest first. dismissed=True returns only the ones you hid instead."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     with get_conn() as conn:
         return conn.execute(
             """SELECT * FROM items
                WHERE kind IN ('news', 'advisory') AND classified = 1 AND keep = 1
-                 AND severity IN ('critical', 'high') AND seen_at >= ?
+                 AND severity IN ('critical', 'high') AND seen_at >= ? AND dismissed = ?
                ORDER BY seen_at DESC LIMIT ?""",
-            (cutoff, limit),
+            (cutoff, 1 if dismissed else 0, limit),
         ).fetchall()
+
+
+def count_dismissed(days: int) -> int:
+    return len(get_security_items(days, dismissed=True))
+
+
+def set_dismissed(item_id: str, dismissed: bool) -> bool:
+    """Returns False if there's no such item."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE items SET dismissed = ? WHERE id = ? AND kind IN ('news', 'advisory')",
+            (1 if dismissed else 0, item_id),
+        )
+        return cur.rowcount > 0
 
 
 _HEALTH_KEY = "source_health"

@@ -1,4 +1,4 @@
-{% macro card(item, variant='', extra_class='') %}
+{% macro card(item, variant='', extra_class='', action='') %}
   <article class="card{{ ' ' + variant if variant else '' }}{{ ' ' + extra_class if extra_class else '' }}" data-tag="{{ (item.tag or '')|lower }}">
     <a class="title" href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>
     <div class="meta">
@@ -19,6 +19,11 @@
     </div>
     {% endif %}
     {% if item.summary %}<p class="summary">{{ item.summary|striptags }}</p>{% endif %}
+    {% if action %}
+    <form class="card-action" method="post" action="/{{ action }}/{{ item.id }}">
+      <button type="submit" class="card-action-btn">{{ "Not relevant - hide" if action == 'dismiss' else "Restore" }}</button>
+    </form>
+    {% endif %}
   </article>
 {% endmacro %}
 

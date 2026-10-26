@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log in - Security Watch</title>
+<link rel="icon" type="image/png" href="/static/favicon.png?v={{ favicon_version }}">
+<link rel="stylesheet" href="/static/style.css?v={{ css_version }}">
+</head>
+<body>
+<div class="login-box">
+  <h1>Log in to hide items</h1>
+  {% if enabled %}
+  <p>Enter your <code>ADMIN_TOKEN</code>. This browser stays logged in for a year.</p>
+  {% if error %}<p class="error">Wrong token.</p>{% endif %}
+  <form method="post" action="/login">
+    <input type="password" name="token" autocomplete="current-password" autofocus required>
+    <button type="submit">Log in</button>
+  </form>
+  {% else %}
+  <p>Hiding items is turned off because <code>ADMIN_TOKEN</code> isn't set. Add it to <code>.env</code>
+  and restart: <code>docker compose up -d</code>.</p>
+  {% endif %}
+  <p><a class="header-link" href="/">← Back</a></p>
+</div>
+</body>
+</html>
