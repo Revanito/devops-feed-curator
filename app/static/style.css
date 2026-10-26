@@ -98,15 +98,112 @@ header h1 {
   cursor: not-allowed;
 }
 
+/* Author display rules (e.g. on buttons) would otherwise beat the hidden attribute. */
+[hidden] { display: none !important; }
+
 .filter-bar {
   max-width: 1440px;
   margin: 0 auto;
   padding: 1rem 1.25rem 0;
   display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.search-row {
+  display: flex;
+  gap: 0.5rem;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.5rem;
 }
+
+.search-box {
+  position: relative;
+  flex: 1;
+  max-width: 520px;
+  min-width: 0;
+}
+
+.search-box input {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.search-box input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-clear {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+
+.search-clear:hover { color: var(--text); }
+
+.search-hint {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.search-hint kbd {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  font-family: inherit;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.chip-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+
+.chip-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--critical);
+}
+
+.filter-tag.active .chip-dot { background: #0f1216; }
+
+.filter-tag:focus-visible,
+.search-clear:focus-visible,
+.card-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.filter-status {
+  color: var(--muted);
+  font-size: 0.82rem;
+  min-height: 1.1em;
+}
+
+.filter-status strong { color: var(--text); }
+
+.section-count { font-variant-numeric: tabular-nums; }
 
 .filter-label {
   color: var(--muted);
@@ -121,9 +218,12 @@ header h1 {
   border: 1px solid var(--border);
   color: var(--muted);
   border-radius: 999px;
-  padding: 0.3rem 0.75rem;
-  font-size: 0.78rem;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   transition: border-color 0.15s ease, color 0.15s ease;
 }
 

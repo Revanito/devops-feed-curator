@@ -34,12 +34,15 @@ vendor_advisories:
     url: https://www.oracle.com/ocom/groups/public/@otn/documents/webcontent/rss-otn-sec.xml
   - name: Grafana Blog
     url: https://grafana.com/blog/index.xml
-  - name: CISA Advisories
-    url: https://www.cisa.gov/cybersecurity-advisories/all.xml
+  # CISA's advisories RSS (cisa.gov/cybersecurity-advisories/all.xml) blocks automated readers
+  # (HTTP 403). Its key content - what's actively exploited - already comes from the CISA KEV feed.
 
 security_news:
-  - name: BleepingComputer
-    url: https://www.bleepingcomputer.com/feed/
+  # BleepingComputer's feed blocks automated readers (HTTP 403), so these two cover the same news.
+  - name: The Hacker News
+    url: https://feeds.feedburner.com/TheHackersNews
+  - name: SecurityWeek
+    url: https://www.securityweek.com/feed/
   - name: SANS Internet Storm Center
     url: https://isc.sans.edu/rssfeed_full.xml
   - name: The Register

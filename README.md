@@ -41,6 +41,8 @@ Every hour (`NEWS_POLL_MINUTES`), the app checks two kinds of sources:
 
 The top of the page shows whether CISA KEV and NVD are working. A red banner lists every source whose last fetch failed, so a dead feed can't look like a quiet week.
 
+**Filtering:** type in the search box (press `/` to jump to it) to show only the cards that contain those words. `php` also finds "PHP2Shell", and a CVE number works too. The product chips show how many items each product has; a red dot means at least one is critical. A chip matches cards tagged with that product, and cards whose text contains one of the product's `aliases` from `stack.yaml`. Selected chips are saved in the address, so `/#php` or `/#php~docker` can be bookmarked.
+
 **Hiding items that don't concern you:** set `ADMIN_TOKEN` in `.env`, open `/login` once and enter it. Each card then has a **Not relevant - hide** button. Hidden items are listed under **Hidden (N)** in the header, where you can restore them. A hidden CVE comes back on its own if it gets worse: High turning Critical, or added to CISA's actively exploited list. Without `ADMIN_TOKEN`, nobody can hide anything, so visitors to a public page can't hide CVEs from you.
 
 **Editing your stack:** each product in `stack.yaml` has NVD product IDs (`cpe`, exact) and description patterns (`keywords`, which catch CVEs NVD hasn't analyzed yet). Changes apply on the next poll. The file explains each field.

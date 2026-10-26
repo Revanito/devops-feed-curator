@@ -193,16 +193,17 @@ def _nav_context() -> dict:
 
 def _source_health() -> tuple[list[dict], list[dict]]:
     """(failing, key) - failing: every source whose last fetch failed; key: KEV/NVD status, always
-    shown since they're the backbone. Entries not checked in 2 days are sources that were removed
-    from sources.yaml, so they're left out."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=2)
+    shown since they're the backbone. Feeds no longer in sources.yaml are left out, so removing a
+    blocked feed clears it from the banner right away."""
+    try:
+        current = {s["name"] for group in feeds._load_source_groups().values() for s in group or []}
+    except Exception:  # noqa: BLE001 - a broken sources.yaml: show everything rather than nothing
+        current = None
+    if current is not None:
+        current |= {advisories.KEV_SOURCE, advisories.NVD_SOURCE, "stack.yaml"}
     failing, key = [], []
     for name, h in sorted(db.get_source_health().items()):
-        try:
-            checked = datetime.fromisoformat(h.get("checked_at", ""))
-        except ValueError:
-            continue
-        if checked < cutoff:
+        if current is not None and name not in current:
             continue
         entry = {"name": name, "ok": h.get("ok"), "error": h.get("error", ""),
                  "last_ok": _ago(h.get("last_ok_at"))}
@@ -299,7 +300,11 @@ def index(request: Request, view: str = ""):
     critical_items = sorted((i for i in items if i["severity"] == "critical"), key=lambda i: not i["exploited"])
     high_items = sorted((i for i in items if i["severity"] == "high"),
                         key=lambda i: ((i["tag"] or "").lower() == advisories.OTHER_TAG, not i["exploited"]))
-    all_tags = sorted({(item["tag"] or "").lower() for item in items if item["tag"]})
+    # Product chips for the filter bar. The page's script decides which cards go under each chip.
+    try:
+        filter_products = [{"name": p.name, "aliases": p.aliases} for p in advisories.load_stack()]
+    except Exception:  # noqa: BLE001 - a broken stack.yaml is already shown as a failing source
+        filter_products = []
     failing_sources, key_sources = _source_health()
     return templates.TemplateResponse("index.html", {
         "request": request, "stats": db.counts(kind="news"), "refresh_available": _refresh_available(),
@@ -308,7 +313,7 @@ def index(request: Request, view: str = ""):
         "days": settings.news_max_age_days,
         "is_admin": is_admin, "show_hidden": show_hidden, "login_enabled": bool(settings.admin_token),
         "hidden_count": db.count_dismissed(settings.news_max_age_days) if is_admin else 0,
-        "all_tags": all_tags, "css_version": _css_version, "favicon_version": _favicon_version,
+        "filter_products": filter_products, "css_version": _css_version, "favicon_version": _favicon_version,
         **_nav_context(),
     })
 

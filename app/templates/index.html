@@ -46,40 +46,184 @@
 </div>
 {% endif %}
 
-{% if all_tags %}
-<div class="filter-bar">
-  <span class="filter-label">Product:</span>
-  <button type="button" class="filter-tag active" data-filter-tag="">All</button>
-  {% for tag in all_tags %}
-  <button type="button" class="filter-tag" data-filter-tag="{{ tag }}">{{ tag }}</button>
-  {% endfor %}
+{% if critical_items or high_items %}
+<div class="filter-bar" id="filter-bar">
+  <div class="search-row">
+    <div class="search-box">
+      <input type="search" id="filter-search" placeholder="Search: php, docker, node2shell, CVE-2026-…" autocomplete="off" aria-label="Search vulnerabilities">
+      <button type="button" class="search-clear" id="filter-clear" aria-label="Clear search" hidden>×</button>
+    </div>
+    <span class="search-hint">Press <kbd>/</kbd> to search, <kbd>Esc</kbd> to clear</span>
+  </div>
+  <div class="chips" id="filter-chips">
+    <span class="filter-label">Product:</span>
+    <button type="button" class="filter-tag active" data-chip="">All</button>
+  </div>
+  <div class="filter-status" id="filter-status" aria-live="polite"></div>
 </div>
 {% endif %}
 
+{# Products from stack.yaml and the words that count as a match - read by the filter script. #}
+<script type="application/json" id="filter-products">{{ filter_products|tojson }}</script>
+
 <section class="severity-section critical-section">
-  <h2>🔴 Critical <span class="section-hint">actively exploited, or CVSS 9.0+ in your stack</span></h2>
+  <h2>🔴 Critical <span class="section-count" id="critical-shown"></span> <span class="section-hint">actively exploited, or CVSS 9.0+ in your stack</span></h2>
   {% if critical_items %}
   <div class="severity-grid">
     {% for item in critical_items %}{{ m.card(item, variant='critical', action=card_action) }}{% endfor %}
   </div>
+  <p class="empty" id="critical-empty" hidden>No critical items match this filter.</p>
   {% else %}
   <p class="empty">{{ "Nothing hidden here." if show_hidden else "Nothing critical in the last %d days."|format(days) }}</p>
   {% endif %}
 </section>
 
 <section class="severity-section high-section">
-  <h2>🟠 High <span class="section-hint">CVSS 7.0-8.9 in your stack, or exploited elsewhere</span></h2>
+  <h2>🟠 High <span class="section-count" id="high-shown"></span> <span class="section-hint">CVSS 7.0-8.9 in your stack, or exploited elsewhere</span></h2>
   {% if high_items %}
   <div class="severity-grid">
     {% for item in high_items %}{{ m.card(item, variant='high', action=card_action) }}{% endfor %}
   </div>
+  <p class="empty" id="high-empty" hidden>No high items match this filter.</p>
   {% else %}
   <p class="empty">{{ "Nothing hidden here." if show_hidden else "Nothing high in the last %d days."|format(days) }}</p>
   {% endif %}
 </section>
 
 <script>
-  // Hide/restore without a page reload; falls back to a normal form post if this fails.
+  // ---------- quick filters: search box + product chips ----------
+  var securityFilter = (function () {
+    var bar = document.getElementById("filter-bar");
+    if (!bar) return { refresh: function () {} };
+    var products = JSON.parse(document.getElementById("filter-products").textContent || "[]");
+    var allCards = Array.prototype.slice.call(document.querySelectorAll(".severity-section .card"));
+    var search = document.getElementById("filter-search");
+    var clearBtn = document.getElementById("filter-clear");
+    var chipBox = document.getElementById("filter-chips");
+    var status = document.getElementById("filter-status");
+    var selected = new Set();
+
+    function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+    function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+    function cards() { return allCards.filter(function (c) { return c.isConnected; }); }
+
+    // An alias matches as a whole word, or followed by digits: "php" matches "PHP2Shell" and
+    // "PHP 8.3", but "java" doesn't match "JavaScript".
+    products.forEach(function (p) {
+      p.slug = slug(p.name);
+      p.res = (p.aliases || []).concat([p.name]).map(function (a) {
+        return new RegExp("(^|[^a-z0-9])" + escapeRe(a.toLowerCase()) + "(?=[^a-z]|$)");
+      });
+    });
+
+    allCards.forEach(function (card) {
+      var part = function (sel) { var el = card.querySelector(sel); return el ? el.textContent : ""; };
+      card._text = (part(".title") + " " + part(".summary") + " " + part(".source") + " " + card.dataset.tag).toLowerCase();
+      card._products = new Set();
+      products.forEach(function (p) {
+        if (card.dataset.tag === p.name.toLowerCase() || p.res.some(function (re) { return re.test(card._text); })) {
+          card._products.add(p.slug);
+        }
+      });
+      if (card._products.size === 0) card._products.add("other");
+    });
+
+    // Chips: only products that have items, most items first; red dot = has a critical item.
+    var chipDefs = products.concat([{ name: "Other", slug: "other" }]).map(function (p) {
+      var matching = allCards.filter(function (c) { return c._products.has(p.slug); });
+      return { name: p.name, slug: p.slug, count: matching.length,
+               critical: matching.some(function (c) { return c.classList.contains("critical"); }) };
+    }).filter(function (d) { return d.count > 0; });
+    chipDefs.sort(function (a, b) { return (a.slug === "other") - (b.slug === "other") || b.count - a.count; });
+    chipDefs.forEach(function (d) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "filter-tag"; b.dataset.chip = d.slug;
+      if (d.critical) {
+        b.title = "Has critical items";
+        var dot = document.createElement("span"); dot.className = "chip-dot"; dot.setAttribute("aria-hidden", "true");
+        b.appendChild(dot);
+      }
+      var label = document.createElement("span"); label.textContent = d.name; b.appendChild(label);
+      var count = document.createElement("span"); count.className = "chip-count"; b.appendChild(count);
+      chipBox.appendChild(b);
+    });
+    var chips = Array.prototype.slice.call(chipBox.querySelectorAll(".filter-tag"));
+
+    function apply(updateHash) {
+      var live = cards();
+      var words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+      var shown = { critical: 0, high: 0 }, total = { critical: 0, high: 0 };
+      live.forEach(function (card) {
+        var sev = card.classList.contains("critical") ? "critical" : "high";
+        total[sev]++;
+        var chipOk = selected.size === 0 || Array.from(selected).some(function (s) { return card._products.has(s); });
+        var textOk = words.every(function (w) { return card._text.indexOf(w) !== -1; });
+        card.hidden = !(chipOk && textOk);
+        if (!card.hidden) shown[sev]++;
+      });
+      chips.forEach(function (b) {
+        var s = b.dataset.chip;
+        b.classList.toggle("active", s === "" ? selected.size === 0 : selected.has(s));
+        b.setAttribute("aria-pressed", b.classList.contains("active") ? "true" : "false");
+        var count = b.querySelector(".chip-count");
+        if (count) count.textContent = live.filter(function (c) { return c._products.has(s); }).length;
+      });
+      var filtering = selected.size > 0 || words.length > 0;
+      ["critical", "high"].forEach(function (sev) {
+        var label = document.getElementById(sev + "-shown");
+        if (label) label.textContent = filtering ? shown[sev] + " of " + total[sev] : total[sev];
+        var empty = document.getElementById(sev + "-empty");
+        if (empty) empty.hidden = !(total[sev] > 0 && shown[sev] === 0);
+        var headerCount = document.getElementById("count-" + sev);
+        if (headerCount) headerCount.textContent = total[sev];
+      });
+      clearBtn.hidden = search.value === "";
+      status.textContent = "";
+      if (filtering) {
+        status.append("Showing ");
+        var strong = document.createElement("strong");
+        strong.textContent = shown.critical + shown.high;
+        status.append(strong, " of " + live.length + " · ");
+        var reset = document.createElement("a");
+        reset.href = "#"; reset.className = "header-link"; reset.textContent = "show all";
+        reset.addEventListener("click", function (e) { e.preventDefault(); selected.clear(); search.value = ""; apply(true); });
+        status.append(reset);
+      }
+      if (updateHash) {
+        // Bookmarkable: /#php or /#php~docker
+        var hash = Array.from(selected).join("~");
+        history.replaceState(null, "", hash ? "#" + hash : location.pathname + location.search);
+      }
+    }
+
+    chipBox.addEventListener("click", function (e) {
+      var b = e.target.closest(".filter-tag");
+      if (!b) return;
+      var s = b.dataset.chip;
+      if (s === "") selected.clear();
+      else if (selected.has(s)) selected.delete(s);
+      else selected.add(s);
+      apply(true);
+    });
+    search.addEventListener("input", function () { apply(false); });
+    clearBtn.addEventListener("click", function () { search.value = ""; apply(false); search.focus(); });
+    document.addEventListener("keydown", function (e) {
+      var active = document.activeElement;
+      if (e.key === "/" && active !== search && !/^(input|textarea|select)$/i.test(active.tagName)) {
+        e.preventDefault(); search.focus();
+      } else if (e.key === "Escape" && active === search) {
+        search.value = ""; apply(false);
+      }
+    });
+
+    location.hash.replace(/^#/, "").split("~").forEach(function (s) {
+      if (s && chips.some(function (b) { return b.dataset.chip === s; })) selected.add(s);
+    });
+    apply(false);
+    return { refresh: function () { apply(false); } };
+  })();
+
+  // ---------- hide / restore without a page reload; falls back to a normal form post ----------
   document.querySelectorAll('.card-action').forEach(function (form) {
     form.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -88,48 +232,14 @@
         .then(function (r) {
           if (r.status === 403) { window.location = '/login'; return; }
           if (!r.ok) { form.submit(); return; }
-          var section = card.closest('.severity-section');
-          var counter = section && document.getElementById(
-            section.classList.contains('critical-section') ? 'count-critical' : 'count-high');
-          if (counter) counter.textContent = Math.max(0, parseInt(counter.textContent, 10) - 1);
           var hidden = document.getElementById('count-hidden');
           if (hidden) hidden.textContent = parseInt(hidden.textContent, 10) + 1;
           card.remove();
+          securityFilter.refresh();  // updates the header, section and chip counts
         })
         .catch(function () { form.submit(); });
     });
   });
-
-  (function () {
-    var selected = new Set();
-    var buttons = document.querySelectorAll('.filter-tag');
-    var cards = document.querySelectorAll('.card');
-
-    function apply() {
-      buttons.forEach(function (btn) {
-        var tag = btn.dataset.filterTag;
-        btn.classList.toggle('active', tag === '' ? selected.size === 0 : selected.has(tag));
-      });
-      cards.forEach(function (card) {
-        var visible = selected.size === 0 || selected.has(card.dataset.tag);
-        card.style.display = visible ? '' : 'none';
-      });
-    }
-
-    buttons.forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var tag = btn.dataset.filterTag;
-        if (tag === '') {
-          selected.clear();
-        } else if (selected.has(tag)) {
-          selected.delete(tag);
-        } else {
-          selected.add(tag);
-        }
-        apply();
-      });
-    });
-  })();
 </script>
 </body>
 </html>

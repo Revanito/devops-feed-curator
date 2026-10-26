@@ -46,6 +46,11 @@ def temp_db(tmp_path, monkeypatch):
     ("Apache Struts file upload logic is flawed", None),
     ("An issue in GitLab CE/EE allows", None),
     ("An authorized user may crash the mongod process", "MongoDB"),
+    ("Docker Desktop for Windows allows a local user to escalate to SYSTEM", "Docker"),
+    ("runc before 1.3.3 allows a container breakout through a /proc mount race", "Docker"),
+    ("containerd is an open-source container runtime. A bug in the CRI plugin", "Docker"),
+    ("Moby is an open-source project created by Docker. dockerd may ignore", "Docker"),
+    ("BuildKit is a toolkit for converting source code to build artifacts", "Docker"),
 ])
 def test_keyword_matching(text, expected):
     product = advisories.match_product(STACK, [], text)
@@ -257,6 +262,20 @@ def test_page_red_above_orange(temp_db, monkeypatch):
     assert html.index("critical-section") < html.index("high-section")
     assert "CVSS 9.8" in html
     assert "source failing" in html and "NVD" in html
+    # The filter bar and the product list its script reads.
+    assert 'id="filter-search"' in html
+    assert '"name": "Docker"' in html and '"node2shell"' in html
+
+
+def test_docker_cpe():
+    assert advisories.match_product(STACK, ["docker:desktop"], "").name == "Docker"
+    assert advisories.match_product(STACK, ["linuxfoundation:runc"], "").name == "Docker"
+
+
+def test_every_product_loads_aliases():
+    names = {p.name: p.aliases for p in STACK}
+    assert names["PHP"] == ["php"]
+    assert "apache" not in names["Apache HTTP Server"]  # would pull Struts/Tomcat under that chip
 
 
 def test_nvd_respects_two_hour_interval(temp_db):

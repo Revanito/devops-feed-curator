@@ -9,6 +9,11 @@
 #   keywords:  regexes (case-insensitive) matched against the CVE description, for CVEs NVD hasn't
 #              analyzed yet - this is what catches a CVE on day one. Keep them specific: a bare
 #              "PHP" would also match every WordPress plugin CVE that mentions PHP.
+#   aliases:   optional, plain words for the page's product filter chips only (not for deciding
+#              what's a vulnerability). A card goes under a chip if it's tagged with that product,
+#              or its title/summary contains one of these words - as a whole word, or followed by
+#              digits: "php" matches "PHP2Shell" and "PHP 8.3", "java" doesn't match "JavaScript".
+#              The product name itself always counts as an alias.
 #   (Products are tried top to bottom; an exact cpe match always wins over a keyword match.)
 #   min_severity: optional, "high" (default) or "critical". Use "critical" for products with so
 #              many High CVEs that the orange section would drown (the Linux kernel).
@@ -21,44 +26,64 @@ products:
   - name: PHP
     cpe: ["php:php"]
     keywords: ['\bPHP versions?\b', '\bin PHP \d', '\bphp-src\b', '\bPHP-(CGI|FPM)\b']
+    aliases: ["php"]
 
   - name: Node.js
     cpe: ["nodejs:node.js", "nodejs:nodejs"]
     # Node.js itself, not the thousands of npm packages described as "a library for Node.js".
     keywords: ['(?<!for )(?<!\ba )(?<!\ban )\bNode\.js\b(?!\s+(library|module|package|framework|application|app|client|server framework|wrapper|implementation|SDK|bindings?|addon|plugin|tool|CLI|project|API)\b)']
+    aliases: ["node.js", "nodejs", "node2shell"]
+
+  # The whole Docker family: Engine (Moby/dockerd), Desktop, Compose, BuildKit, Docker Hub/Scout,
+  # and the runtimes underneath (containerd, runc). Kept above Windows Server so "Docker Desktop
+  # for Windows" is tagged Docker.
+  - name: Docker
+    cpe: ["docker:*", "mobyproject:*", "moby:*", "containerd:*", "linuxfoundation:containerd",
+          "linuxfoundation:runc", "opencontainers:runc"]
+    keywords: ['\bDocker (Engine|Desktop|Compose|CLI|daemon|Hub|Scout|Build|Buildx|Model Runner|Swarm)\b',
+               '\bdockerd\b', '\bMoby\b', '\bBuildKit\b', '\bcontainerd\b', '\brunc\b']
+    aliases: ["docker", "dockerd", "moby", "buildkit", "containerd", "runc"]
 
   - name: Java
     cpe: ["oracle:jdk", "oracle:jre", "oracle:openjdk", "oracle:java_se", "oracle:graalvm*", "eclipse:temurin"]
     keywords: ['\bJava SE\b', '\bOpenJDK\b', '\bOracle Java\b']
+    aliases: ["java", "openjdk", "jdk", "jre"]
 
   - name: MongoDB
     cpe: ["mongodb:mongodb"]
     keywords: ['\bMongoDB (Server|Enterprise|Community)\b', '\bmongod\b', '\bmongos\b']
+    aliases: ["mongodb", "mongod", "mongos"]
 
   - name: SQL Server
     cpe: ["microsoft:sql_server*"]
     keywords: ['\bSQL Server\b']
+    aliases: ["sql server", "mssql"]
 
   - name: PowerShell
     cpe: ["microsoft:powershell*"]
     keywords: ['\bPowerShell\b']
+    aliases: ["powershell"]
 
   - name: Ubuntu
     cpe: ["canonical:ubuntu_linux"]
     keywords: ['\bUbuntu\b']
+    aliases: ["ubuntu"]
 
   - name: Linux kernel
     cpe: ["linux:linux_kernel", "linux:kernel"]
     keywords: ['^In the Linux kernel\b']
     min_severity: critical
+    aliases: ["linux kernel"]
 
   - name: OpenSSH
     cpe: ["openbsd:openssh"]
     keywords: ['\bOpenSSH\b']
+    aliases: ["openssh", "sshd"]
 
   - name: OpenSSL
     cpe: ["openssl:openssl"]
     keywords: ['\bOpenSSL\b']
+    aliases: ["openssl"]
 
   - name: sudo
     cpe: ["sudo_project:sudo", "todd_miller:sudo", "sudo:sudo"]
@@ -67,6 +92,7 @@ products:
   - name: glibc
     cpe: ["gnu:glibc"]
     keywords: ['\bglibc\b', '\bGNU C Library\b']
+    aliases: ["gnu c library"]
 
   - name: Grafana
     cpe: ["grafana:grafana"]
@@ -75,6 +101,7 @@ products:
   - name: Prometheus
     cpe: ["prometheus:prometheus", "prometheus:alertmanager", "prometheus:*_exporter"]
     keywords: ['\bPrometheus\b']
+    aliases: ["alertmanager"]
 
   - name: Git
     cpe: ["git-scm:git", "git:git", "git_for_windows_project:git_for_windows"]
@@ -83,6 +110,8 @@ products:
   - name: Apache HTTP Server
     cpe: ["apache:http_server"]
     keywords: ['\bApache HTTP Server\b', '\bApache httpd\b']
+    # Not plain "apache": that would also pull Struts/Tomcat/Kafka news under this chip.
+    aliases: ["httpd", "apache2", "mod_rewrite"]
 
   # Kept last on purpose: products are tried in list order and its keywords are the broadest
   # ("Git for Windows", "SQL Server on Windows" should be tagged Git / SQL Server).
@@ -92,6 +121,7 @@ products:
     # Vulnerability", so match those at the start - a bare "Windows" anywhere would also pull in
     # every third-party "XYZ for Windows" app.
     keywords: ['^(Microsoft )?(Windows|Active Directory|Hyper-V|Remote Desktop|Kerberos|Microsoft Message Queuing|Win32k|NTLM|Internet Information Services|Group Policy)\b', '\bWindows Server\b']
+    aliases: ["windows", "active directory", "kerberos", "wsus", "hyper-v", "ntlm"]
 
   # Not in your list but often found next to Java/Apache - uncomment if you run it.
   # - name: Apache Tomcat

@@ -39,6 +39,8 @@ class Product:
     cpe: list[str] = field(default_factory=list)
     keywords: list[re.Pattern] = field(default_factory=list)
     min_severity: str = "high"
+    # Plain words for the page's filter chips only - see stack.yaml.
+    aliases: list[str] = field(default_factory=list)
 
 
 def load_stack(path: str | None = None) -> list[Product]:
@@ -55,6 +57,7 @@ def load_stack(path: str | None = None) -> list[Product]:
             cpe=[str(c).lower() for c in raw.get("cpe") or []],
             keywords=[re.compile(k, re.IGNORECASE) for k in raw.get("keywords") or []],
             min_severity=min_severity,
+            aliases=[str(a).lower() for a in raw.get("aliases") or []],
         ))
     return products
 
