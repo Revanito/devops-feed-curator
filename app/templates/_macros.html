@@ -3,6 +3,8 @@
     <a class="title" href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>
     <div class="meta">
       {% if item.price %}<span class="price">{{ "%.0f"|format(item.price + (item.shipping or 0)) }} {{ item.currency }}</span>{% endif %}
+      {% if item.exploited %}<span class="badge exploited">Actively exploited</span>{% endif %}
+      {% if item.cvss %}<span class="badge cvss">CVSS {{ "%.1f"|format(item.cvss) }}</span>{% endif %}
       <span class="source">{{ item.source }}</span>
       {% if item.tag %}<span class="tag">{{ item.tag }}</span>{% endif %}
       <span class="published">{{ item.published }}</span>
@@ -22,7 +24,7 @@
 
 {% macro nav(active, deals_label='Homelab Deals', beyond_label='Beyond Budget', ram_label='RAM Deals', ram_beyond_label='RAM Deals Beyond') %}
   <nav class="page-nav">
-    <a class="page-nav-link{{ ' active' if active == 'news' else '' }}" href="/">News</a>
+    <a class="page-nav-link{{ ' active' if active == 'news' else '' }}" href="/">Security</a>
     <a class="page-nav-link{{ ' active' if active == 'deals' else '' }}" href="/deals">{{ deals_label }}</a>
     <a class="page-nav-link{{ ' active' if active == 'beyond' else '' }}" href="/deals/beyond">{{ beyond_label }}</a>
     <a class="page-nav-link{{ ' active' if active == 'ram' else '' }}" href="/ram">{{ ram_label }}</a>

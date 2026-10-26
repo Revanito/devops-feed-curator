@@ -5,6 +5,7 @@ from pathlib import Path
 
 import httpx
 
+import advisories
 import ebay
 from config import settings
 
@@ -104,10 +105,17 @@ async def _classify(system_prompt: str, batch: list, build_prompt, model: str) -
         if not isinstance(idx, int) or not (1 <= idx <= len(batch)):
             continue
         item_id = batch[idx - 1]["id"]
+        # The news prompt answers with a severity (critical/high/none) and no "keep": keep follows
+        # from it. The deals prompts answer with "keep" and no severity.
+        severity = str(entry.get("severity") or "").strip().lower()
+        if severity not in ("critical", "high"):
+            severity = ""
+        keep = bool(entry["keep"]) if "keep" in entry else bool(severity)
         results[item_id] = {
-            "keep": bool(entry.get("keep", False)),
+            "keep": keep,
             "tag": str(entry.get("tag", ""))[:30],
-            "critical": bool(entry.get("critical", False)),
+            "critical": severity == "critical" or bool(entry.get("critical", False)),
+            "severity": severity,
             # cpu/ram/storage are the mini-PC deals fields; capacity/kit are the RAM deals fields.
             # Harmless no-ops for whichever kind's prompt didn't ask for a given field - the LLM
             # just never returns that key, and .get() here defaults it to "".
@@ -124,8 +132,20 @@ async def _classify(system_prompt: str, batch: list, build_prompt, model: str) -
     return results
 
 
+def _news_system_prompt() -> str:
+    """The news prompt gets stack.yaml's product names filled in, read fresh each call so editing
+    the stack applies on the next poll, same as for the KEV/NVD matching."""
+    try:
+        names = [p.name for p in advisories.load_stack()]
+    except Exception as exc:  # noqa: BLE001 - a broken stack.yaml is already flagged on the page
+        log.error("could not load stack for the news prompt: %s", exc)
+        names = []
+    stack = "\n".join(f"- {n}" for n in names) or "- (stack.yaml could not be loaded)"
+    return _SYSTEM_PROMPT.replace("{{STACK}}", stack)
+
+
 async def classify_batch(batch: list, model: str) -> dict[str, dict]:
-    return await _classify(_SYSTEM_PROMPT, batch, _build_user_prompt, model)
+    return await _classify(_news_system_prompt(), batch, _build_user_prompt, model)
 
 
 async def classify_deals_batch(batch: list, model: str) -> dict[str, dict]:

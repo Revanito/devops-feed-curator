@@ -1,10 +1,10 @@
 # devops-feed-curator
 
-A small self-hosted web page that uses a cheap LLM to filter out the noise, across three feeds:
+A small self-hosted web page with three feeds:
 
 | Page | What it shows |
 |---|---|
-| **News** (`/`) | DevOps, homelab and IT news from Reddit, Hacker News, blogs and security sites. Shopping posts and off-topic content are removed. |
+| **Security** (`/`) | Critical and high-severity vulnerabilities and incidents for the products you run, listed in [`app/stack.yaml`](app/stack.yaml). Critical items are red and always at the top; high ones are orange, below them. |
 | **Homelab Deals** (`/deals`) | Cheap mini PCs on eBay (FR/DE/UK) that make good homelab nodes: ThinkCentre Tiny, EliteDesk/ProDesk Mini, NUC, OptiPlex Micro. |
 | **RAM Deals** (`/ram`) | DDR4/DDR5 sticks and kits on eBay. DDR3 and older are dropped. |
 
@@ -13,7 +13,7 @@ Each deals page has a "beyond budget" version (`/deals/beyond`, `/ram/beyond`) f
 ## Quick start
 
 ```bash
-cp .env.example .env      # set ONE_MIN_API_KEY (that's all the news feed needs)
+cp .env.example .env      # set ONE_MIN_API_KEY (that's all the Security page needs)
 docker compose up -d --build
 ```
 
@@ -25,13 +25,33 @@ The deals pages also need eBay API keys (`EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET`
 
 ## How it works
 
-1. Once a day (at `POLL_HOUR`, midnight by default), the app fetches the RSS feeds and eBay searches.
+### Security page
+
+Every hour (`NEWS_POLL_MINUTES`), the app checks two kinds of sources:
+
+1. **CVE databases: [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (actively exploited vulnerabilities) and [NVD](https://nvd.nist.gov) (all CVEs).** These are matched against `stack.yaml` with fixed rules. No LLM is involved, so they still work when the LLM is down:
+
+   | Colour | Rule |
+   |---|---|
+   | 🔴 Critical | On CISA KEV and in your stack, or CVSS 9.0 or higher in your stack |
+   | 🟠 High | CVSS 7.0 to 8.9 in your stack, or on CISA KEV but not in your stack |
+
+   NVD is checked every 2 hours (its usage guidelines ask for no more), and fetched incrementally: every CVE changed since the last run, so a CVE that gets its score late is still picked up. If a High CVE later turns Critical or is added to KEV, it goes back to the top of the page. The score used is the highest of NVD's and the vendor's (CVSS v3.0, v3.1 and v4.0). The vendor's score usually arrives days before NVD's.
+2. **Security news and vendor feeds** ([`app/sources.yaml`](app/sources.yaml)): Node.js and PHP security releases, Oracle patch updates, CISA advisories, BleepingComputer, SANS ISC and others. These give early warnings that CVE databases don't have yet. An LLM reads each new item and labels it critical, high or none, based on your stack. Items labelled none are dropped.
+
+The top of the page shows whether CISA KEV and NVD are working. A red banner lists every source whose last fetch failed, so a dead feed can't look like a quiet week.
+
+**Editing your stack:** each product in `stack.yaml` has NVD product IDs (`cpe`, exact) and description patterns (`keywords`, which catch CVEs NVD hasn't analyzed yet). Changes apply on the next poll. The file explains each field.
+
+### Deals pages and the LLM
+
+1. Once a day (at `POLL_HOUR`, midnight by default), the app runs the eBay searches.
 2. New items go to an LLM (`gpt-4o-mini` via [1min.ai](https://1min.ai)), which decides which ones to keep and tags them.
 3. Kept items are saved in SQLite (`data/feeds.db`) and shown on the pages.
 
 If the main model fails, the app sends it one harmless test item. If that fails too, the model is down: the app skips it for an hour and uses `MODEL_CLASSIFIER_FALLBACK` instead (Claude Haiku by default, a different provider so one outage can't take out both). If every model is down, items wait until the next poll; they are never dropped because of an outage. If the test item works, one item in the batch is the problem (usually 1min.ai's content filter), so the app splits the batch to find it and drops only that item. Fallback use shows up in the logs: `docker compose logs | grep fallback`.
 
-The News page also has two extra sections at the top. **Must Read** shows major incidents, such as big outages, actively exploited zero-days, or critical CVEs with emergency patches. **Latest CVEs** shows the newest vulnerability disclosures. Items are sorted by their published date. News older than 7 days is deleted, and old posts that a feed still lists are not added back.
+The Security page shows what was flagged in the last 7 days (`NEWS_MAX_AGE_DAYS`).
 
 On the deals pages, prices are converted to EUR with shipping included. UK prices use the day's ECB exchange rate (from [frankfurter.dev](https://frankfurter.dev)), or `GBP_TO_EUR_RATE` if that fetch fails. Listings are sorted into three columns: cheapest, mid-range and priciest. Before the LLM sees anything, some listings are removed by fixed rules:
 - broken or "for parts" listings
@@ -53,7 +73,9 @@ Everything is set in `.env`. [`.env.example`](.env.example) explains each settin
 | `EBAY_DELIVERY_COUNTRY` | `FR` | Only show listings that ship here. |
 | `DEAL_MAX_PRICE_EUR` / `DEAL_EXTENDED_MAX_PRICE_EUR` | `500` / `1500` | Mini PC price limits: main page / "beyond" page. |
 | `RAM_MAX_PRICE_EUR` / `RAM_EXTENDED_MAX_PRICE_EUR` | `200` / `500` | RAM price limits: main page / "beyond" page. |
-| `POLL_HOUR` / `POLL_MINUTE` | `0` / `0` | When the daily fetch runs. |
+| `NEWS_POLL_MINUTES` | `60` | How often the Security page's sources are checked. |
+| `NVD_API_KEY` | — | Optional, free. Speeds up large NVD fetches. |
+| `POLL_HOUR` / `POLL_MINUTE` | `0` / `0` | When the daily deals fetch runs. |
 | `ADMIN_TOKEN` | — | Lets you skip the refresh cooldown (see below). |
 
 ## Customizing
@@ -62,7 +84,8 @@ These files are mounted into the container. After you edit one, the change appli
 
 | To change… | Edit |
 |---|---|
-| News sources | [`app/sources.yaml`](app/sources.yaml) |
+| The products you watch | [`app/stack.yaml`](app/stack.yaml) |
+| Security news sources | [`app/sources.yaml`](app/sources.yaml) |
 | eBay searches | [`app/deals.yaml`](app/deals.yaml), [`app/ram_deals.yaml`](app/ram_deals.yaml) |
 | What the LLM keeps or drops | [`app/prompts/`](app/prompts/) (one prompt per page) |
 
@@ -86,7 +109,7 @@ These files are mounted into the container. After you edit one, the change appli
 
 ## Running tests
 
-The tests in [`tests/`](tests/) cover the eBay filtering rules (CPU policy, RAM generation, conditions, shipping, multi-option listings). They need no API keys and make no network calls. You need Python 3.10 or newer:
+The tests in [`tests/`](tests/) cover the security rules (stack matching, KEV/NVD parsing, severity, merging, page order) and the eBay filtering rules. They need no API keys and make no network calls. You need Python 3.10 or newer:
 
 ```bash
 pip install -r app/requirements.txt pytest

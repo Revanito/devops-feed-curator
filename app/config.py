@@ -20,12 +20,27 @@ class Settings(BaseSettings):
     classify_batch_size: int = 15
     max_items_per_source: int = 25
 
+    # News/security feeds, CISA KEV and NVD are polled on this interval (deals stay on the daily
+    # POLL_HOUR schedule). Only new items reach the LLM, so polling more often costs little extra.
+    news_poll_minutes: int = 60
+
     sources_file: str = "sources.yaml"
+    # Products you run/support - CVEs from NVD and CISA KEV are matched against this list.
+    stack_file: str = "stack.yaml"
+    kev_url: str = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    nvd_url: str = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    # Optional, free (nvd.nist.gov/developers/request-an-api-key): raises NVD's rate limit so
+    # multi-page fetches are faster. Works fine without it.
+    nvd_api_key: str = ""
+    # NVD asks API users not to poll for updates more often than every two hours.
+    nvd_poll_minutes: int = 120
+    # CVEs published longer ago than this are ignored even if NVD re-scores them now, and
+    # vulnerability rows are kept this long (so an old one can't reappear as "new").
+    advisory_max_age_days: int = 30
     db_path: str = "/data/feeds.db"
 
-    # News items (Must Read, Latest CVEs, and the 3 columns) older than this many days get deleted
-    # each poll, rather than lingering indefinitely when a quiet stretch doesn't produce enough fresh
-    # volume to push them off the page.
+    # The Security page shows what was flagged in the last this-many days; news items older than
+    # this get deleted each poll.
     news_max_age_days: int = 7
 
     # Reddit's anonymous RSS access blocks any request that follows another too soon (a single

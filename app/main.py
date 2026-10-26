@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import advisories
 import db
 import ebay
 import feeds
@@ -32,21 +33,22 @@ scheduler = AsyncIOScheduler()
 _last_manual_refresh: datetime | None = None
 _css_version = hashlib.sha256(open("static/style.css", "rb").read()).hexdigest()[:10]
 _favicon_version = hashlib.sha256(open("static/favicon.png", "rb").read()).hexdigest()[:10]
-_poll_lock = asyncio.Lock()
+_news_lock = asyncio.Lock()
+_deals_lock = asyncio.Lock()
 
 
-async def poll_and_classify() -> None:
-    if _poll_lock.locked():
-        log.info("poll already in progress, skipping")
+async def poll_news() -> None:
+    """Security news feeds + CISA KEV + NVD, every NEWS_POLL_MINUTES."""
+    if _news_lock.locked():
+        log.info("news poll already in progress, skipping")
         return
-    async with _poll_lock:
+    async with _news_lock:
         log.info("polling feeds...")
         items = await asyncio.to_thread(feeds.fetch_all)
         reddit_items = await asyncio.to_thread(feeds.fetch_reddit)
         items += reddit_items
-        # Some feeds keep weeks-old posts (e.g. Microsoft Security Blog). Without this, an item
-        # deleted by the age cleanup below gets re-inserted as "new" next poll, re-classified,
-        # and shown again forever.
+        # Some feeds keep weeks-old posts. Without this, an item deleted by the age cleanup below
+        # gets re-inserted as "new" next poll, re-classified, and shown again forever.
         fresh = [i for i in items if _published_dt(i) is None or _is_recent(i, settings.news_max_age_days)]
         if len(fresh) < len(items):
             log.info("skipped %d feed items older than %d days", len(items) - len(fresh), settings.news_max_age_days)
@@ -58,6 +60,22 @@ async def poll_and_classify() -> None:
         if deleted:
             log.info("deleted %d news items older than %d days", deleted, settings.news_max_age_days)
 
+        # KEV/NVD first and before the LLM: these must land even if every model is down.
+        log.info("polling CISA KEV and NVD...")
+        found = await asyncio.to_thread(advisories.fetch_all)
+        new, escalated = db.upsert_advisories(found)
+        log.info("vulnerabilities: %d matched, %d new, %d escalated", len(found), new, escalated)
+        db.delete_old_items(settings.advisory_max_age_days, kind="advisory")
+
+        await _classify_pending("news", classify_batch_isolating_failures)
+
+
+async def poll_deals() -> None:
+    """eBay deals, once a day at POLL_HOUR:POLL_MINUTE."""
+    if _deals_lock.locked():
+        log.info("deals poll already in progress, skipping")
+        return
+    async with _deals_lock:
         if settings.ebay_client_id and settings.ebay_client_secret:
             await asyncio.to_thread(ebay.refresh_gbp_rate)
 
@@ -79,9 +97,13 @@ async def poll_and_classify() -> None:
             log.info("re-checked %d eBay listings, %d no longer available",
                       len(checked_ids), len(gone_ids))
 
-        await _classify_pending("news", classify_batch_isolating_failures)
         await _classify_pending("deal", classify_deals_batch_isolating_failures)
         await _classify_pending("ram", classify_ram_batch_isolating_failures)
+
+
+async def poll_and_classify() -> None:
+    await poll_news()
+    await poll_deals()
 
 
 async def _classify_pending(kind: str, classify_fn) -> None:
@@ -103,7 +125,11 @@ async def _classify_pending(kind: str, classify_fn) -> None:
 async def lifespan(app: FastAPI):
     db.init_db()
     scheduler.add_job(
-        poll_and_classify, "cron",
+        poll_news, "interval",
+        minutes=settings.news_poll_minutes, next_run_time=datetime.now(),
+    )
+    scheduler.add_job(
+        poll_deals, "cron",
         hour=settings.poll_hour, minute=settings.poll_minute, next_run_time=datetime.now(),
     )
     scheduler.start()
@@ -113,18 +139,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-
-def _split_columns(items: list) -> tuple[list, list, list]:
-    reddit, blogs, homelab = [], [], []
-    for item in items:
-        if (item["tag"] or "").lower() == "homelab":
-            homelab.append(item)
-        elif item["source"].startswith("r/"):
-            reddit.append(item)
-        else:
-            blogs.append(item)
-    return reddit, blogs, homelab
 
 
 def _published_dt(item) -> datetime | None:
@@ -142,13 +156,6 @@ def _published_dt(item) -> datetime | None:
 def _is_recent(item, days: int) -> bool:
     dt = _published_dt(item)
     return dt is not None and datetime.now(timezone.utc) - dt <= timedelta(days=days)
-
-
-_EPOCH = datetime.min.replace(tzinfo=timezone.utc)
-
-
-def _newest_first(items: list) -> list:
-    return sorted(items, key=lambda item: _published_dt(item) or _EPOCH, reverse=True)
 
 
 def _refresh_available() -> bool:
@@ -182,19 +189,59 @@ def _nav_context() -> dict:
     }
 
 
+def _source_health() -> tuple[list[dict], list[dict]]:
+    """(failing, key) - failing: every source whose last fetch failed; key: KEV/NVD status, always
+    shown since they're the backbone. Entries not checked in 2 days are sources that were removed
+    from sources.yaml, so they're left out."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=2)
+    failing, key = [], []
+    for name, h in sorted(db.get_source_health().items()):
+        try:
+            checked = datetime.fromisoformat(h.get("checked_at", ""))
+        except ValueError:
+            continue
+        if checked < cutoff:
+            continue
+        entry = {"name": name, "ok": h.get("ok"), "error": h.get("error", ""),
+                 "last_ok": _ago(h.get("last_ok_at"))}
+        if name in (advisories.KEV_SOURCE, advisories.NVD_SOURCE):
+            key.append(entry)
+        if not h.get("ok"):
+            failing.append(entry)
+    return failing, key
+
+
+def _ago(iso: str | None) -> str:
+    if not iso:
+        return "never"
+    try:
+        delta = datetime.now(timezone.utc) - datetime.fromisoformat(iso)
+    except ValueError:
+        return "never"
+    minutes = int(delta.total_seconds() // 60)
+    if minutes < 60:
+        return f"{minutes}m ago"
+    if minutes < 48 * 60:
+        return f"{minutes // 60}h ago"
+    return f"{minutes // 1440}d ago"
+
+
 @app.get("/")
 def index(request: Request):
-    items = _newest_first(db.get_curated(limit=300, kind="news"))
-    stats = db.counts(kind="news")
-    reddit_items, blog_items, homelab_items = _split_columns(items)
-    must_read_items = [item for item in items if item["critical"] and _is_recent(item, days=7)][:8]
-    cve_items = [item for item in items if (item["tag"] or "").lower() == "cve"][:3]
+    items = db.get_security_items(days=settings.news_max_age_days)
+    # Red always above orange. Red: actively exploited first. Orange: your stack first, then
+    # exploited-elsewhere. Then newest flagged first (the query sorts by seen_at; sorted() is stable).
+    critical_items = sorted((i for i in items if i["severity"] == "critical"), key=lambda i: not i["exploited"])
+    high_items = sorted((i for i in items if i["severity"] == "high"),
+                        key=lambda i: ((i["tag"] or "").lower() == advisories.OTHER_TAG, not i["exploited"]))
     all_tags = sorted({(item["tag"] or "").lower() for item in items if item["tag"]})
+    failing_sources, key_sources = _source_health()
     return templates.TemplateResponse("index.html", {
-        "request": request, "stats": stats, "refresh_available": _refresh_available(),
-        "must_read_items": must_read_items, "cve_items": cve_items,
+        "request": request, "stats": db.counts(kind="news"), "refresh_available": _refresh_available(),
+        "critical_items": critical_items, "high_items": high_items,
+        "failing_sources": failing_sources, "key_sources": key_sources,
+        "days": settings.news_max_age_days,
         "all_tags": all_tags, "css_version": _css_version, "favicon_version": _favicon_version,
-        "reddit_items": reddit_items, "blog_items": blog_items, "homelab_items": homelab_items,
         **_nav_context(),
     })
 

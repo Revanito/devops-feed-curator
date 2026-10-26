@@ -1,0 +1,99 @@
+# The products you run, support or patch. Every CVE from NVD and CISA KEV is checked against this
+# list with fixed rules (no LLM involved), and the list is also given to the LLM that reads the
+# vendor/news feeds. Edit freely - applies on the next poll, no rebuild needed.
+#
+# Per product:
+#   name:      shown on the page and used as the filter tag.
+#   cpe:       NVD "vendor:product" pairs (globs allowed). Matches once NVD has analyzed a CVE.
+#              Look one up on https://nvd.nist.gov/products/cpe/search
+#   keywords:  regexes (case-insensitive) matched against the CVE description, for CVEs NVD hasn't
+#              analyzed yet - this is what catches a CVE on day one. Keep them specific: a bare
+#              "PHP" would also match every WordPress plugin CVE that mentions PHP.
+#   (Products are tried top to bottom; an exact cpe match always wins over a keyword match.)
+#   min_severity: optional, "high" (default) or "critical". Use "critical" for products with so
+#              many High CVEs that the orange section would drown (the Linux kernel).
+#
+# Severity rules:
+#   red    = actively exploited (on CISA KEV) or CVSS 9.0+
+#   orange = CVSS 7.0-8.9, or actively exploited in a product NOT on this list
+
+products:
+  - name: PHP
+    cpe: ["php:php"]
+    keywords: ['\bPHP versions?\b', '\bin PHP \d', '\bphp-src\b', '\bPHP-(CGI|FPM)\b']
+
+  - name: Node.js
+    cpe: ["nodejs:node.js", "nodejs:nodejs"]
+    # Node.js itself, not the thousands of npm packages described as "a library for Node.js".
+    keywords: ['(?<!for )(?<!\ba )(?<!\ban )\bNode\.js\b(?!\s+(library|module|package|framework|application|app|client|server framework|wrapper|implementation|SDK|bindings?|addon|plugin|tool|CLI|project|API)\b)']
+
+  - name: Java
+    cpe: ["oracle:jdk", "oracle:jre", "oracle:openjdk", "oracle:java_se", "oracle:graalvm*", "eclipse:temurin"]
+    keywords: ['\bJava SE\b', '\bOpenJDK\b', '\bOracle Java\b']
+
+  - name: MongoDB
+    cpe: ["mongodb:mongodb"]
+    keywords: ['\bMongoDB (Server|Enterprise|Community)\b', '\bmongod\b', '\bmongos\b']
+
+  - name: SQL Server
+    cpe: ["microsoft:sql_server*"]
+    keywords: ['\bSQL Server\b']
+
+  - name: PowerShell
+    cpe: ["microsoft:powershell*"]
+    keywords: ['\bPowerShell\b']
+
+  - name: Ubuntu
+    cpe: ["canonical:ubuntu_linux"]
+    keywords: ['\bUbuntu\b']
+
+  - name: Linux kernel
+    cpe: ["linux:linux_kernel", "linux:kernel"]
+    keywords: ['^In the Linux kernel\b']
+    min_severity: critical
+
+  - name: OpenSSH
+    cpe: ["openbsd:openssh"]
+    keywords: ['\bOpenSSH\b']
+
+  - name: OpenSSL
+    cpe: ["openssl:openssl"]
+    keywords: ['\bOpenSSL\b']
+
+  - name: sudo
+    cpe: ["sudo_project:sudo", "todd_miller:sudo", "sudo:sudo"]
+    keywords: ['\bsudo (before|through|versions?)\b']
+
+  - name: glibc
+    cpe: ["gnu:glibc"]
+    keywords: ['\bglibc\b', '\bGNU C Library\b']
+
+  - name: Grafana
+    cpe: ["grafana:grafana"]
+    keywords: ['\bGrafana\b']
+
+  - name: Prometheus
+    cpe: ["prometheus:prometheus", "prometheus:alertmanager", "prometheus:*_exporter"]
+    keywords: ['\bPrometheus\b']
+
+  - name: Git
+    cpe: ["git-scm:git", "git:git", "git_for_windows_project:git_for_windows"]
+    keywords: ['^Git is a\b', '\bGit for Windows\b', '\bgit-scm\b']
+
+  - name: Apache HTTP Server
+    cpe: ["apache:http_server"]
+    keywords: ['\bApache HTTP Server\b', '\bApache httpd\b']
+
+  # Kept last on purpose: products are tried in list order and its keywords are the broadest
+  # ("Git for Windows", "SQL Server on Windows" should be tagged Git / SQL Server).
+  - name: Windows Server
+    cpe: ["microsoft:windows_server*", "microsoft:windows"]
+    # Microsoft's CVE descriptions are titles like "Windows Kerberos Elevation of Privilege
+    # Vulnerability", so match those at the start - a bare "Windows" anywhere would also pull in
+    # every third-party "XYZ for Windows" app.
+    keywords: ['^(Microsoft )?(Windows|Active Directory|Hyper-V|Remote Desktop|Kerberos|Microsoft Message Queuing|Win32k|NTLM|Internet Information Services|Group Policy)\b', '\bWindows Server\b']
+
+  # Not in your list but often found next to Java/Apache - uncomment if you run it.
+  # - name: Apache Tomcat
+  #   cpe: ["apache:tomcat"]
+  #   keywords: ['\bApache Tomcat\b']

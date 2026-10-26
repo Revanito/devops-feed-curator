@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DevOps / Homelab Feed</title>
+<title>{% if critical_items %}({{ critical_items|length }}) {% endif %}Security Watch</title>
 <link rel="icon" type="image/png" href="/static/favicon.png?v={{ favicon_version }}">
 <link rel="stylesheet" href="/static/style.css?v={{ css_version }}">
 </head>
@@ -11,13 +11,17 @@
 {% import '_macros.html' as m %}
 <header>
   <div class="header-top">
-    <h1>DevOps / Homelab Feed</h1>
+    <h1>Security Watch</h1>
     {{ m.nav('news', deals_label, beyond_label, ram_label, ram_beyond_label) }}
   </div>
   <div class="stats">
-    <span>{{ reddit_items|length + blog_items|length + homelab_items|length }} shown</span>
+    <span class="count-critical">{{ critical_items|length }} critical</span>
+    <span class="count-high">{{ high_items|length }} high</span>
+    <span>last {{ days }} days</span>
     <span>{{ stats.pending or 0 }} pending review</span>
-    <span>{{ stats.dropped or 0 }} filtered out</span>
+    {% for s in key_sources %}
+    <span class="{{ 'source-ok' if s.ok else 'source-failing' }}">{{ s.name }}: {{ 'ok' if s.ok else 'FAILING' }} (last ok {{ s.last_ok }})</span>
+    {% endfor %}
     <form action="/refresh" method="post">
       <button type="submit" {% if not refresh_available %}disabled{% endif %}>
         {{ "Refresh now" if refresh_available else "Refresh (cooling down)" }}
@@ -26,9 +30,17 @@
   </div>
 </header>
 
+{% if failing_sources %}
+<div class="health-warning">
+  <strong>⚠ {{ failing_sources|length }} source{{ 's' if failing_sources|length != 1 }} failing</strong> -
+  items from {{ 'it' if failing_sources|length == 1 else 'them' }} may be missing:
+  {% for s in failing_sources %}<span class="health-source" title="{{ s.error }}">{{ s.name }} (last ok {{ s.last_ok }})</span>{% endfor %}
+</div>
+{% endif %}
+
 {% if all_tags %}
 <div class="filter-bar">
-  <span class="filter-label">Filter:</span>
+  <span class="filter-label">Product:</span>
   <button type="button" class="filter-tag active" data-filter-tag="">All</button>
   {% for tag in all_tags %}
   <button type="button" class="filter-tag" data-filter-tag="{{ tag }}">{{ tag }}</button>
@@ -36,29 +48,27 @@
 </div>
 {% endif %}
 
-{% if must_read_items %}
-<section class="must-read-section">
-  <h2>⚠ Must Read</h2>
-  <div class="must-read-grid">
-    {% for item in must_read_items %}{{ m.card(item, variant='must-read') }}{% endfor %}
+<section class="severity-section critical-section">
+  <h2>🔴 Critical <span class="section-hint">actively exploited, or CVSS 9.0+ in your stack</span></h2>
+  {% if critical_items %}
+  <div class="severity-grid">
+    {% for item in critical_items %}{{ m.card(item, variant='critical') }}{% endfor %}
   </div>
+  {% else %}
+  <p class="empty">Nothing critical in the last {{ days }} days.</p>
+  {% endif %}
 </section>
-{% endif %}
 
-{% if cve_items %}
-<section class="cve-section">
-  <h2>🛡 Latest CVEs</h2>
-  <div class="cve-grid">
-    {% for item in cve_items %}{{ m.card(item, variant='cve') }}{% endfor %}
+<section class="severity-section high-section">
+  <h2>🟠 High <span class="section-hint">CVSS 7.0-8.9 in your stack, or exploited elsewhere</span></h2>
+  {% if high_items %}
+  <div class="severity-grid">
+    {% for item in high_items %}{{ m.card(item, variant='high') }}{% endfor %}
   </div>
+  {% else %}
+  <p class="empty">Nothing high in the last {{ days }} days.</p>
+  {% endif %}
 </section>
-{% endif %}
-
-<main class="columns">
-  {{ m.column('Reddit', reddit_items) }}
-  {{ m.column('Blogs & DevOps News', blog_items) }}
-  {{ m.column('Homelab', homelab_items) }}
-</main>
 
 <script>
   (function () {
@@ -91,15 +101,6 @@
       });
     });
   })();
-
-  document.querySelectorAll('.see-more').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      btn.closest('.column').querySelectorAll('.hidden-card').forEach(function (card) {
-        card.classList.remove('hidden-card');
-      });
-      btn.remove();
-    });
-  });
 </script>
 </body>
 </html>

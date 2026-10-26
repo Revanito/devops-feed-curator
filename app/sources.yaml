@@ -1,4 +1,14 @@
-# RSS/Atom sources to poll. Add/remove freely - no code changes needed.
+# RSS/Atom sources the LLM reads for security news. Add/remove freely - no code changes needed.
+# CVEs themselves come from CISA KEV and NVD (see stack.yaml / advisories.py) with fixed rules, so
+# these feeds are for what those can't give: early warnings, pre-announced security releases, and
+# exploitation news before a CVE is scored. Each feed's last fetch result is shown on the page.
+#
+# Microsoft (MSRC) and Ubuntu (USN) feeds are deliberately not here: Microsoft CVEs reach NVD with
+# Microsoft's own CVSS on release day and are scored by fixed rules, and USNs are one item per
+# package update with no severity - they'd mostly add orange noise. Add them if you want them:
+#   https://api.msrc.microsoft.com/update-guide/rss
+#   https://ubuntu.com/security/notices/rss.xml
+#
 # "reddit" is one combined multireddit feed, not one entry per subreddit - Reddit's anonymous access
 # is tight enough that a second request right after the first gets blocked (429, or on old.reddit.com
 # a redirect to a login wall), so it's fetched on its own separate clock (REDDIT_POLL_HOURS, see
@@ -10,37 +20,31 @@
 # pool of items - Reddit's RSS endpoint appears to cap actual results at 25 regardless.
 reddit:
   - name: Reddit (combined)
-    url: https://www.reddit.com/r/homelab+selfhosted+docker+devops+kubernetes+sysadmin/new/.rss
+    url: https://www.reddit.com/r/sysadmin+netsec/new/.rss
     limit: 100
 
-hackernews:
-  - name: Hacker News (front page)
-    url: https://hnrss.org/frontpage
-  - name: Hacker News (newest)
-    url: https://hnrss.org/newest?points=30
-
-blogs:
-  - name: ServeTheHome
-    url: https://www.servethehome.com/feed/
-  - name: Docker Blog
-    url: https://www.docker.com/blog/feed/
-  - name: Kubernetes Blog
-    url: https://kubernetes.io/feed.xml
-  - name: Cloudflare Blog
-    url: https://blog.cloudflare.com/rss/
+vendor_advisories:
+  # Pre-announces security releases about a week ahead, with their severity.
+  - name: Node.js Security
+    url: https://nodejs.org/en/feed/vulnerability.xml
+  - name: PHP News
+    url: https://www.php.net/feed.atom
+  # Oracle Critical Patch Updates and Security Alerts (Java SE).
+  - name: Oracle Security Alerts
+    url: https://www.oracle.com/ocom/groups/public/@otn/documents/webcontent/rss-otn-sec.xml
   - name: Grafana Blog
     url: https://grafana.com/blog/index.xml
-  - name: Phoronix
-    url: https://www.phoronix.com/rss.php
+  - name: CISA Advisories
+    url: https://www.cisa.gov/cybersecurity-advisories/all.xml
 
-it_news:
+security_news:
   - name: BleepingComputer
     url: https://www.bleepingcomputer.com/feed/
+  - name: SANS Internet Storm Center
+    url: https://isc.sans.edu/rssfeed_full.xml
   - name: The Register
     url: https://www.theregister.com/headlines.atom
   - name: Krebs on Security
     url: https://krebsonsecurity.com/feed/
-  - name: SANS Internet Storm Center
-    url: https://isc.sans.edu/rssfeed_full.xml
-  - name: Microsoft Security Blog
-    url: https://www.microsoft.com/en-us/security/blog/feed/
+  - name: Hacker News (front page)
+    url: https://hnrss.org/frontpage

@@ -85,6 +85,7 @@ def _fetch_one(client: httpx.Client, source: dict) -> tuple[list[dict], bool]:
         resp = client.get(source["url"])
     except httpx.HTTPError as exc:
         log.warning("failed to fetch feed %s (%s): %s", source["name"], source["url"], exc)
+        db.record_source_health(source["name"], False, str(exc)[:200])
         return [], False
     if resp.status_code != 200:
         log.warning(
@@ -92,17 +93,21 @@ def _fetch_one(client: httpx.Client, source: dict) -> tuple[list[dict], bool]:
             source["name"], source["url"], resp.status_code,
             resp.headers.get("retry-after"), resp.headers.get("x-ratelimit-remaining"),
         )
+        db.record_source_health(source["name"], False, f"HTTP {resp.status_code}")
         return [], True
     parsed = feedparser.parse(resp.content)
     if parsed.bozo and not parsed.entries:
         log.warning("failed to parse feed %s (%s): %s", source["name"], source["url"], parsed.bozo_exception)
+        db.record_source_health(source["name"], False, "unparseable feed")
         return [], True
     if not parsed.entries:
         log.warning(
             "feed %s (%s) returned HTTP 200 but no entries (content-length=%s) - possibly rate-limited",
             source["name"], source["url"], len(resp.content),
         )
+        db.record_source_health(source["name"], False, "empty feed")
         return [], True
+    db.record_source_health(source["name"], True)
     items = []
     limit = source.get("limit", settings.max_items_per_source)
     for entry in parsed.entries[:limit]:

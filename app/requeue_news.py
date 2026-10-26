@@ -23,7 +23,7 @@ with db.get_conn() as conn:
         (cutoff,),
     ).fetchone()[0]
     requeued = conn.execute(
-        "UPDATE items SET classified = 0, keep = NULL, tag = NULL, critical = 0 "
+        "UPDATE items SET classified = 0, keep = NULL, tag = NULL, critical = 0, severity = NULL "
         "WHERE kind = 'news' AND classified = 1 AND keep = 0 AND seen_at >= ?",
         (cutoff,),
     ).rowcount

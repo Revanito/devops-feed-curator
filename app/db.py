@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -26,7 +27,10 @@ CREATE TABLE IF NOT EXISTS items (
     storage TEXT,
     last_checked_at TEXT,
     capacity TEXT,
-    kit TEXT
+    kit TEXT,
+    severity TEXT,
+    cvss REAL,
+    exploited INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_items_keep_published ON items (keep, published);
 CREATE TABLE IF NOT EXISTS meta (
@@ -60,6 +64,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE items ADD COLUMN capacity TEXT")
     if "kit" not in columns:
         conn.execute("ALTER TABLE items ADD COLUMN kit TEXT")
+    if "severity" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN severity TEXT")
+        # News kept by the old prompt has no severity: its "critical" items stay red, everything
+        # else (general homelab/DevOps news) drops off the security page.
+        conn.execute("UPDATE items SET severity = 'critical' WHERE kind = 'news' AND critical = 1")
+    if "cvss" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN cvss REAL")
+    if "exploited" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN exploited INTEGER NOT NULL DEFAULT 0")
 
     # One-time backfill: items ingested before feeds.py stripped HTML from summaries can have
     # raw/mid-tag-truncated markup baked into this column - which was making 1min.ai reject the
@@ -118,9 +131,9 @@ def apply_classifications(results: dict[str, dict]) -> None:
     with get_conn() as conn:
         for item_id, r in results.items():
             conn.execute(
-                """UPDATE items SET classified = 1, keep = ?, tag = ?, critical = ?,
+                """UPDATE items SET classified = 1, keep = ?, tag = ?, critical = ?, severity = ?,
                        cpu = ?, ram = ?, storage = ?, capacity = ?, kit = ? WHERE id = ?""",
-                (1 if r["keep"] else 0, r["tag"], 1 if r["critical"] else 0,
+                (1 if r["keep"] else 0, r["tag"], 1 if r["critical"] else 0, r.get("severity") or None,
                  r.get("cpu"), r.get("ram"), r.get("storage"), r.get("capacity"), r.get("kit"), item_id),
             )
             # Only the RAM prompt's classifier ever fills this in (an English translation of a
@@ -236,3 +249,99 @@ def counts(kind: str = "news") -> dict[str, int]:
             (kind,),
         ).fetchone()
         return dict(row)
+
+
+_SEVERITY_RANK = {"high": 1, "critical": 2}
+
+
+def upsert_advisories(advisories: list[dict]) -> tuple[int, int]:
+    """Insert or merge KEV/NVD rows (one row per CVE). Returns (new, escalated).
+
+    Merging: the worse severity wins, "exploited" sticks once set, KEV's wording (which says what
+    to do) wins over NVD's, and a real product tag wins over "other". An escalation - High turning
+    Critical, or a CVE newly added to KEV - resets seen_at so it comes back to the top of the page
+    even if it had aged off."""
+    now = datetime.now(timezone.utc).isoformat()
+    new = escalated = 0
+    with get_conn() as conn:
+        for a in advisories:
+            row = conn.execute(
+                "SELECT severity, cvss, exploited, tag, source, title, summary, published, seen_at "
+                "FROM items WHERE id = ?", (a["id"],),
+            ).fetchone()
+            if row is None:
+                severity = "critical" if a["exploited"] and a["tag"] != "other" else a["severity"]
+                conn.execute(
+                    """INSERT INTO items (id, source, title, link, summary, published, seen_at, kind,
+                           classified, keep, tag, critical, severity, cvss, exploited)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 'advisory', 1, 1, ?, ?, ?, ?, ?)""",
+                    (a["id"], a["source"], a["title"], a["link"], a["summary"], a["published"], now,
+                     a["tag"], 1 if severity == "critical" else 0, severity, a["cvss"],
+                     1 if a["exploited"] else 0),
+                )
+                new += 1
+                continue
+
+            exploited = bool(row["exploited"]) or bool(a["exploited"])
+            tag = a["tag"] if a["tag"] != "other" else (row["tag"] or "other")
+            cvss = a["cvss"] if a["cvss"] is not None else row["cvss"]
+            old_rank = _SEVERITY_RANK.get(row["severity"] or "", 0)
+            rank = max(old_rank, _SEVERITY_RANK.get(a["severity"], 0))
+            if exploited and tag != "other":
+                rank = _SEVERITY_RANK["critical"]
+            severity = "critical" if rank == 2 else "high"
+            # KEV text says what to do; keep it once we have it.
+            use_new_text = a["source"] == "CISA KEV" or row["source"] != "CISA KEV"
+            source, title, summary, published = (
+                (a["source"], a["title"], a["summary"], a["published"]) if use_new_text
+                else (row["source"], row["title"], row["summary"], row["published"])
+            )
+            is_escalation = rank > old_rank or (exploited and not row["exploited"])
+            if is_escalation:
+                escalated += 1
+            conn.execute(
+                """UPDATE items SET source = ?, title = ?, summary = ?, published = ?, tag = ?,
+                       severity = ?, critical = ?, cvss = ?, exploited = ?, seen_at = ?,
+                       classified = 1, keep = 1 WHERE id = ?""",
+                (source, title, summary, published, tag, severity, 1 if severity == "critical" else 0,
+                 cvss, 1 if exploited else 0, now if is_escalation else row["seen_at"], a["id"]),
+            )
+    return new, escalated
+
+
+def get_security_items(days: int, limit: int = 500) -> list[sqlite3.Row]:
+    """Everything flagged Critical or High (news and KEV/NVD rows) first seen - or escalated -
+    in the last `days` days, newest first."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT * FROM items
+               WHERE kind IN ('news', 'advisory') AND classified = 1 AND keep = 1
+                 AND severity IN ('critical', 'high') AND seen_at >= ?
+               ORDER BY seen_at DESC LIMIT ?""",
+            (cutoff, limit),
+        ).fetchall()
+
+
+_HEALTH_KEY = "source_health"
+
+
+def record_source_health(name: str, ok: bool, error: str = "") -> None:
+    """Last fetch result per source, shown on the page - a dead feed must be visible, not just a
+    line in the logs, or "nothing new" and "not looking" look the same."""
+    health = get_source_health()
+    entry = health.get(name, {})
+    now = datetime.now(timezone.utc).isoformat()
+    entry.update({"ok": ok, "checked_at": now, "error": "" if ok else error})
+    if ok:
+        entry["last_ok_at"] = now
+    health[name] = entry
+    set_meta(_HEALTH_KEY, json.dumps(health))
+
+
+def get_source_health() -> dict[str, dict]:
+    raw = get_meta(_HEALTH_KEY)
+    try:
+        return json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
