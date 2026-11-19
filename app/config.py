@@ -6,7 +6,7 @@ class Settings(BaseSettings):
 
     one_min_api_key: str
     one_min_base_url: str = "https://api.1min.ai"
-    model_classifier: str = "gpt-4o-mini"
+    model_classifier: str = "gpt-6-luna"
     # Used when the primary is down (retired model ID, provider outage). Deliberately a different
     # provider (AWS Bedrock vs OpenAI) so one provider's outage doesn't take out both. Blank = no fallback.
     model_classifier_fallback: str = "us.anthropic.claude-haiku-5-5"

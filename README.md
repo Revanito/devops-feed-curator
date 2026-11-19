@@ -50,7 +50,7 @@ The top of the page shows whether CISA KEV and NVD are working. A red banner lis
 ### Deals pages and the LLM
 
 1. Once a day (at `POLL_HOUR`, midnight by default), the app runs the eBay searches.
-2. New items go to an LLM (`gpt-4o-mini` via [1min.ai](https://1min.ai)), which decides which ones to keep and tags them.
+2. New items go to an LLM (`gpt-6-luna` via [1min.ai](https://1min.ai)), which decides which ones to keep and tags them.
 3. Kept items are saved in SQLite (`data/feeds.db`) and shown on the pages.
 
 If the main model fails, the app sends it one harmless test item. If that fails too, the model is down: the app skips it for an hour and uses `MODEL_CLASSIFIER_FALLBACK` instead (Claude Haiku by default, a different provider so one outage can't take out both). If every model is down, items wait until the next poll; they are never dropped because of an outage. If the test item works, one item in the batch is the problem (usually 1min.ai's content filter), so the app splits the batch to find it and drops only that item. Fallback use shows up in the logs: `docker compose logs | grep fallback`.
@@ -71,7 +71,7 @@ Everything is set in `.env`. [`.env.example`](.env.example) explains each settin
 | Variable | Default | Purpose |
 |---|---|---|
 | `ONE_MIN_API_KEY` | — | Required. LLM API key. |
-| `MODEL_CLASSIFIER` / `MODEL_CLASSIFIER_FALLBACK` | `gpt-4o-mini` / `us.anthropic.claude-haiku-5-5` | Main LLM and the backup used when it's down. Leave the fallback blank to turn it off. |
+| `MODEL_CLASSIFIER` / `MODEL_CLASSIFIER_FALLBACK` | `gpt-6-luna` / `us.anthropic.claude-haiku-5-5` | Main LLM and the backup used when it's down. Leave the fallback blank to turn it off. |
 | `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` | — | Turn on the deals pages. |
 | `EBAY_MARKETPLACES` | `EBAY_FR,EBAY_DE,EBAY_GB` | Which eBay sites to search. |
 | `EBAY_DELIVERY_COUNTRY` | `FR` | Only show listings that ship here. |
